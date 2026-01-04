@@ -14,7 +14,6 @@
         .tab-active { border-bottom: 3px solid #e11d48; color: #e11d48; font-weight: 700; }
         input, select { font-size: 16px !important; }
         .bg-braza { background-color: #0f172a; }
-        .text-braza { color: #f43f5e; }
         .stock-alert { border-color: #f43f5e; background-color: #fff1f2; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
     </style>
@@ -80,7 +79,7 @@
                             <option value="Embutidos">🌭 Embutidos</option>
                             <option value="Bebidas">🥤 Bebidas</option>
                             <option value="Insumos">🔥 Insumos</option>
-                            <option value="Papas">🍟 Papas</option>
+                            <option value="Papas/Pan">🍟 Papas y Pan</option>
                             <option value="Otros">📦 Otros</option>
                         </select>
                         <div id="buy-total-display" class="p-3 bg-rose-50 text-rose-600 rounded-xl font-black text-center text-sm border border-rose-100 flex items-center justify-center">$0</div>
@@ -96,26 +95,33 @@
 
         <!-- VISTA 2: INVENTARIO MAESTRO -->
         <div id="view-inventario" class="hidden space-y-6">
-            <div class="flex items-center justify-between">
-                <h2 class="font-bold text-slate-800 uppercase text-sm">Control de Stock</h2>
-                <button onclick="toggleAddStock()" class="text-rose-500 font-bold text-xs border border-rose-500 px-3 py-1 rounded-full">+ Nuevo Item</button>
+            <div class="flex flex-col gap-3">
+                <div class="flex items-center justify-between">
+                    <h2 class="font-bold text-slate-800 uppercase text-sm">Control de Stock</h2>
+                    <div class="flex gap-2">
+                        <button onclick="sendInventoryToWhatsApp()" class="bg-emerald-500 text-white font-bold text-[10px] px-3 py-1.5 rounded-full uppercase shadow-sm flex items-center gap-1">
+                            <i class="fab fa-whatsapp"></i> Reporte Stock
+                        </button>
+                        <button onclick="toggleAddStock()" class="text-rose-500 font-bold text-[10px] border border-rose-500 px-3 py-1.5 rounded-full uppercase">+ Nuevo</button>
+                    </div>
+                </div>
+                <button onclick="toggleSalesModal()" class="w-full bg-slate-800 text-white font-bold text-xs py-3 rounded-xl uppercase shadow-sm flex items-center justify-center gap-2">
+                    <i class="fas fa-minus-circle"></i> Descontar Consumo del Día
+                </button>
             </div>
 
-            <!-- Filtros de categoría -->
+            <!-- Filtros -->
             <div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
                 <button onclick="filterInventory('All')" class="cat-pill bg-slate-800 text-white px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap">Todos</button>
                 <button onclick="filterInventory('Carnes')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Carnes</button>
                 <button onclick="filterInventory('Vegetales')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Verduras</button>
                 <button onclick="filterInventory('Embutidos')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Embutidos</button>
                 <button onclick="filterInventory('Bebidas')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Bebidas</button>
+                <button onclick="filterInventory('Papas/Pan')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Papas/Pan</button>
                 <button onclick="filterInventory('Insumos')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Insumos</button>
-                <button onclick="filterInventory('Papas')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Papas</button>
-                <button onclick="filterInventory('Otros')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Otros</button>
             </div>
 
-            <div id="inventory-grid" class="grid grid-cols-1 gap-3">
-                <!-- Items de inventario -->
-            </div>
+            <div id="inventory-grid" class="grid grid-cols-1 gap-3"></div>
         </div>
 
         <!-- VISTA 3: REPORTE FINANCIERO -->
@@ -137,12 +143,12 @@
 
             <div class="card overflow-hidden">
                 <div class="p-4 border-b bg-slate-50 flex justify-between items-center">
-                    <h4 class="font-bold text-xs uppercase text-slate-500">Historial de Pagos</h4>
+                    <h4 class="font-bold text-xs uppercase text-slate-500">Movimientos del Día</h4>
                     <button onclick="sendToWhatsApp()" class="bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1">
-                        <i class="fab fa-whatsapp"></i> ENVIAR REPORTE
+                        <i class="fab fa-whatsapp"></i> ENVIAR REPORTE COMPLETO
                     </button>
                 </div>
-                <div id="history-list" class="divide-y max-h-80 overflow-y-auto"></div>
+                <div id="history-list" class="divide-y max-h-[50vh] overflow-y-auto"></div>
             </div>
 
             <div class="flex flex-col items-center gap-4">
@@ -151,37 +157,36 @@
                         <i class="fas fa-edit"></i> Ajustar Base
                     </button>
                     <button onclick="clearDay()" class="text-[10px] font-bold text-rose-500 uppercase flex items-center gap-1">
-                        <i class="fas fa-trash"></i> Reiniciar Gastos
+                        <i class="fas fa-trash"></i> Reiniciar Día
                     </button>
                 </div>
-                <p class="text-[9px] text-slate-400 text-center px-10 italic">Nota: Al reiniciar gastos se mantiene el inventario y la lista de compras.</p>
             </div>
         </div>
 
     </main>
 
-    <!-- Modal Stock -->
+    <!-- Modales (Iguales a la versión anterior pero con categorías actualizadas) -->
     <div id="stock-modal" class="fixed inset-0 bg-black/60 hidden z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
         <div class="bg-white rounded-2xl p-6 w-full max-w-sm space-y-4 shadow-2xl">
             <h3 class="font-black text-center text-slate-800">CONFIGURAR PRODUCTO</h3>
-            <input type="text" id="s-name" placeholder="Nombre del producto" class="w-full p-3 bg-slate-100 rounded-xl outline-none font-bold">
+            <input type="text" id="s-name" placeholder="Nombre del producto" class="w-full p-3 bg-slate-100 rounded-xl outline-none font-bold uppercase">
             <select id="s-cat" class="w-full p-3 bg-slate-100 rounded-xl font-bold">
                 <option value="Carnes">🥩 Carnes</option>
                 <option value="Vegetales">🥦 Verduras</option>
                 <option value="Embutidos">🌭 Embutidos</option>
                 <option value="Bebidas">🥤 Bebidas</option>
                 <option value="Insumos">🔥 Insumos</option>
-                <option value="Papas">🍟 Papas</option>
+                <option value="Papas/Pan">🍔 Papas y Pan</option>
                 <option value="Otros">📦 Otros</option>
             </select>
             <div class="grid grid-cols-2 gap-2">
                 <div>
                     <label class="text-[9px] font-bold text-slate-400 uppercase ml-1">Stock Actual</label>
-                    <input type="number" id="s-qty" placeholder="Cant." class="w-full p-3 bg-slate-100 rounded-xl text-center font-bold">
+                    <input type="number" id="s-qty" class="w-full p-3 bg-slate-100 rounded-xl text-center font-bold">
                 </div>
                 <div>
-                    <label class="text-[9px] font-bold text-rose-400 uppercase ml-1">Stock Mínimo</label>
-                    <input type="number" id="s-min" placeholder="Aviso" class="w-full p-3 bg-rose-50 border border-rose-100 rounded-xl text-center font-bold text-rose-600">
+                    <label class="text-[9px] font-bold text-rose-400 uppercase ml-1">Mínimo</label>
+                    <input type="number" id="s-min" class="w-full p-3 bg-rose-50 border border-rose-100 rounded-xl text-center font-bold text-rose-600">
                 </div>
             </div>
             <select id="s-unit" class="w-full p-3 bg-slate-100 rounded-xl font-bold">
@@ -197,7 +202,19 @@
         </div>
     </div>
 
-    <!-- Toast -->
+    <!-- Modal Descontar Ventas -->
+    <div id="sales-modal" class="fixed inset-0 bg-black/60 hidden z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl p-6 w-full max-w-sm space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
+            <h3 class="font-black text-center text-slate-800 uppercase text-sm">Registrar Salida / Uso</h3>
+            <p class="text-[10px] text-center text-slate-400">¿Qué se gastó hoy?</p>
+            <div id="sales-list" class="flex-1 overflow-y-auto space-y-2 pr-2 py-2 no-scrollbar"></div>
+            <div class="flex gap-2 pt-4 border-t">
+                <button onclick="toggleSalesModal()" class="flex-1 py-3 font-bold text-slate-500 text-xs uppercase">Cerrar</button>
+                <button onclick="applySales()" class="flex-1 py-3 bg-emerald-500 text-white rounded-xl font-bold shadow-lg text-xs uppercase">Registrar Uso</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-2xl opacity-0 transition-all z-[100] text-xs font-bold pointer-events-none"></div>
 
     <script>
@@ -205,20 +222,64 @@
             base: 1000000,
             pending: [],
             history: [],
+            usageHistory: [],
             inventory: [],
             activeFilter: 'All'
         };
 
         const WHATSAPP_NUM = "573205712682";
 
+        // PRECARGA DE PRODUCTOS SOLICITADOS
+        const initialProducts = [
+            { name: "CocaCola 400 ml", cat: "Bebidas", unit: "und" },
+            { name: "CocaCola 250 ml", cat: "Bebidas", unit: "und" },
+            { name: "Postobon 400 ml", cat: "Bebidas", unit: "und" },
+            { name: "Postobon 250 ml", cat: "Bebidas", unit: "und" },
+            { name: "Carne", cat: "Carnes", unit: "lb" },
+            { name: "Pollo", cat: "Carnes", unit: "lb" },
+            { name: "Alitas", cat: "Carnes", unit: "und" },
+            { name: "Pulpa de cerdo", cat: "Carnes", unit: "lb" },
+            { name: "Chuleta de cerdo", cat: "Carnes", unit: "lb" },
+            { name: "Chorizo", cat: "Embutidos", unit: "und" },
+            { name: "Salchicha", cat: "Embutidos", unit: "und" },
+            { name: "Butifarra", cat: "Embutidos", unit: "und" },
+            { name: "Salchicha para perros", cat: "Embutidos", unit: "und" },
+            { name: "Salchicha Suiza", cat: "Embutidos", unit: "und" },
+            { name: "Costilla Ahumada", cat: "Embutidos", unit: "lb" },
+            { name: "Carne Hamburguesa Molida", cat: "Embutidos", unit: "lb" },
+            { name: "Carne Hamburguesa Masa", cat: "Embutidos", unit: "lb" },
+            { name: "Aceite para freír", cat: "Insumos", unit: "und" },
+            { name: "Pan de Hamburguesa", cat: "Papas/Pan", unit: "und" },
+            { name: "Pan de Perro Sencillo", cat: "Papas/Pan", unit: "und" },
+            { name: "Pan Brioche de Perro", cat: "Papas/Pan", unit: "und" },
+            { name: "Pan Brioche de Hamburguesa", cat: "Papas/Pan", unit: "und" },
+            { name: "Papa Francesa", cat: "Papas/Pan", unit: "kg" },
+            { name: "Lechuga", cat: "Vegetales", unit: "und" },
+            { name: "Lechuga Crespa", cat: "Vegetales", unit: "und" },
+            { name: "Tomate", cat: "Vegetales", unit: "und" },
+            { name: "Cebolla Roja", cat: "Vegetales", unit: "und" },
+            { name: "Cebolla Blanca", cat: "Vegetales", unit: "und" },
+            { name: "Pimentón Rojo", cat: "Vegetales", unit: "und" },
+            { name: "Pimentón Verde", cat: "Vegetales", unit: "und" },
+            { name: "J1", cat: "Otros", unit: "und" },
+            { name: "J2", cat: "Otros", unit: "und" }
+        ];
+
         function init() {
-            const saved = localStorage.getItem('braza_brava_v2');
-            if (saved) state = JSON.parse(saved);
+            const saved = localStorage.getItem('braza_brava_v3');
+            if (saved) {
+                state = JSON.parse(saved);
+            } else {
+                // Si es la primera vez, cargar la lista predefinida
+                state.inventory = initialProducts.map(p => ({
+                    ...p, qty: 0, min: 5, startQty: 0
+                }));
+            }
             updateUI();
         }
 
         function save() {
-            localStorage.setItem('braza_brava_v2', JSON.stringify(state));
+            localStorage.setItem('braza_brava_v3', JSON.stringify(state));
         }
 
         function format(val) {
@@ -232,37 +293,22 @@
             document.getElementById(`tab-${tab}`).classList.add('tab-active');
         }
 
+        // --- PENDIENTES ---
         function addPending(name, qty = "", unit = "und") {
             const inputName = name || document.getElementById('p-name').value.trim();
             const inputQty = qty || document.getElementById('p-qty').value;
             const inputUnit = unit || document.getElementById('p-unit').value;
-            
             if (!inputName) return;
-
             const exists = state.pending.find(p => p.name.toLowerCase() === inputName.toLowerCase() && !p.done);
             if (!exists) {
                 state.pending.push({ name: inputName, qty: inputQty || "1", unit: inputUnit, done: false });
-                if (!name) {
-                    document.getElementById('p-name').value = '';
-                    document.getElementById('p-qty').value = '';
-                }
-                save();
-                renderPending();
+                if (!name) { document.getElementById('p-name').value = ''; document.getElementById('p-qty').value = ''; }
+                save(); renderPending();
             }
         }
 
-        function togglePending(i) {
-            state.pending[i].done = !state.pending[i].done;
-            save();
-            renderPending();
-        }
-
-        function deletePending(i) {
-            state.pending.splice(i, 1);
-            save();
-            renderPending();
-        }
-
+        function togglePending(i) { state.pending[i].done = !state.pending[i].done; save(); renderPending(); }
+        function deletePending(i) { state.pending.splice(i, 1); save(); renderPending(); }
         function usePending(i) {
             const item = state.pending[i];
             document.getElementById('buy-name').value = item.name;
@@ -293,70 +339,44 @@
             });
         }
 
+        // --- COMPRAS ---
         function registerPurchase() {
             const name = document.getElementById('buy-name').value.trim();
             const cat = document.getElementById('buy-cat').value;
             const qty = parseFloat(document.getElementById('buy-qty').value) || 0;
             const price = parseFloat(document.getElementById('buy-price').value) || 0;
             const total = qty * price;
-
             if (!name || total <= 0) return toast("Faltan datos");
-
-            state.history.push({ name, cat, qty, price, total, time: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) });
-
+            state.history.push({ 
+                type: 'gasto', name, cat, qty, price, total, 
+                time: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) 
+            });
             const invIndex = state.inventory.findIndex(i => i.name.toLowerCase() === name.toLowerCase());
-            if (invIndex !== -1) {
-                state.inventory[invIndex].qty += qty;
-            } else {
-                state.inventory.push({ name, cat, qty, unit: 'und', min: 0 });
-            }
-
-            document.getElementById('buy-name').value = '';
-            document.getElementById('buy-qty').value = '';
-            document.getElementById('buy-price').value = '';
-            document.getElementById('buy-total-display').innerText = "$0";
-            
-            save();
-            updateUI();
-            toast("Gasto registrado");
+            if (invIndex !== -1) { state.inventory[invIndex].qty += qty; }
+            else { state.inventory.push({ name, cat, qty, unit: 'und', min: 0, startQty: 0 }); }
+            document.getElementById('buy-name').value = ''; document.getElementById('buy-qty').value = '';
+            document.getElementById('buy-price').value = ''; document.getElementById('buy-total-display').innerText = "$0";
+            save(); updateUI(); toast("Compra guardada");
         }
 
-        function toggleAddStock() {
-            document.getElementById('stock-modal').classList.toggle('hidden');
-        }
-
+        // --- INVENTARIO ---
+        function toggleAddStock() { document.getElementById('stock-modal').classList.toggle('hidden'); }
         function saveNewStock() {
             const name = document.getElementById('s-name').value.trim();
             const cat = document.getElementById('s-cat').value;
             const qty = parseFloat(document.getElementById('s-qty').value) || 0;
             const min = parseFloat(document.getElementById('s-min').value) || 0;
             const unit = document.getElementById('s-unit').value;
-
             if (!name) return;
-            
-            const existingIndex = state.inventory.findIndex(i => i.name.toLowerCase() === name.toLowerCase());
-            if (existingIndex !== -1) {
-                state.inventory[existingIndex] = { ...state.inventory[existingIndex], cat, qty, min, unit };
-            } else {
-                state.inventory.push({ name, cat, qty, min, unit });
-            }
-            
-            toggleAddStock();
-            document.getElementById('s-name').value = '';
-            document.getElementById('s-qty').value = '';
-            document.getElementById('s-min').value = '';
-            
-            checkMins();
-            save();
-            updateUI();
-            toast("Inventario actualizado");
+            const idx = state.inventory.findIndex(i => i.name.toLowerCase() === name.toLowerCase());
+            if (idx !== -1) { state.inventory[idx] = { ...state.inventory[idx], cat, qty, min, unit }; }
+            else { state.inventory.push({ name, cat, qty, min, unit, startQty: qty }); }
+            toggleAddStock(); checkMins(); save(); updateUI();
         }
 
         function updateStock(index, delta) {
             state.inventory[index].qty = Math.max(0, state.inventory[index].qty + delta);
-            checkMins();
-            save();
-            renderInventory();
+            checkMins(); save(); renderInventory();
         }
 
         function checkMins() {
@@ -380,7 +400,6 @@
             const grid = document.getElementById('inventory-grid');
             grid.innerHTML = '';
             const filtered = state.activeFilter === 'All' ? state.inventory : state.inventory.filter(i => i.cat === state.activeFilter);
-
             filtered.forEach((item) => {
                 const idx = state.inventory.indexOf(item);
                 const isLow = item.min > 0 && item.qty <= item.min;
@@ -388,14 +407,11 @@
                 card.className = `card p-4 flex justify-between items-center ${isLow ? 'stock-alert ring-2 ring-rose-500/10' : ''}`;
                 card.innerHTML = `
                     <div class="flex flex-col flex-1">
-                        <div class="flex items-center gap-2">
-                            <span class="text-[8px] uppercase font-black text-rose-500 tracking-tighter">${item.cat}</span>
-                            ${isLow ? '<span class="bg-rose-500 text-white text-[7px] px-1 rounded font-bold">STOCK BAJO</span>' : ''}
-                        </div>
+                        <span class="text-[8px] uppercase font-black text-rose-500 tracking-tighter">${item.cat}</span>
                         <span class="font-bold text-slate-800 text-sm uppercase">${item.name}</span>
                         <div class="flex items-center gap-2 mt-1">
                             <span class="text-xs font-mono font-black ${isLow ? 'text-rose-600' : 'text-slate-600'}">${item.qty} ${item.unit}</span>
-                            <span class="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Min: ${item.min}</span>
+                            <span class="text-[9px] text-slate-400 font-bold uppercase">Inicia: ${item.startQty || 0} | Min: ${item.min}</span>
                         </div>
                     </div>
                     <div class="flex items-center gap-2">
@@ -418,79 +434,118 @@
             toggleAddStock();
         }
 
-        function updateUI() {
+        // --- SALIDAS ---
+        function toggleSalesModal() {
+            const modal = document.getElementById('sales-modal');
+            const list = document.getElementById('sales-list');
+            if (modal.classList.contains('hidden')) {
+                list.innerHTML = '';
+                state.inventory.forEach((item, idx) => {
+                    if (item.qty > 0) {
+                        const div = document.createElement('div');
+                        div.className = "flex items-center gap-3 bg-slate-50 p-3 rounded-xl";
+                        div.innerHTML = `
+                            <div class="flex-1 truncate">
+                                <p class="text-[10px] font-bold text-slate-400 uppercase leading-none">${item.cat}</p>
+                                <p class="text-xs font-bold text-slate-800 uppercase truncate">${item.name}</p>
+                            </div>
+                            <input type="number" step="0.01" placeholder="Uso" data-idx="${idx}" class="sale-input w-20 p-2 bg-white border border-slate-200 rounded-lg text-center font-bold text-emerald-600">
+                        `;
+                        list.appendChild(div);
+                    }
+                });
+            }
+            modal.classList.toggle('hidden');
+        }
+
+        function applySales() {
+            const inputs = document.querySelectorAll('.sale-input');
+            let usage = [];
+            inputs.forEach(input => {
+                const val = parseFloat(input.value);
+                const idx = input.dataset.idx;
+                if (!isNaN(val) && val > 0) {
+                    const item = state.inventory[idx];
+                    item.qty = Math.max(0, item.qty - val);
+                    usage.push({ name: item.name, qty: val, unit: item.unit });
+                }
+            });
+            if (usage.length > 0) {
+                state.usageHistory.push({ time: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }), items: usage });
+                checkMins(); save(); updateUI(); toggleSalesModal(); toast("Salida registrada");
+            }
+        }
+
+        // --- WHATSAPP ---
+        function sendInventoryToWhatsApp() {
+            let msg = `*📦 BRAZA BRAVA - ESTADO STOCK*%0A_Fecha: ${new Date().toLocaleDateString()}_%0A%0A`;
+            const cats = [...new Set(state.inventory.map(i => i.cat))];
+            cats.forEach(cat => {
+                msg += `*${cat.toUpperCase()}*%0A`;
+                state.inventory.filter(i => i.cat === cat).forEach(item => {
+                    const mark = (item.min > 0 && item.qty <= item.min) ? " ⚠️ *BAJO*" : "";
+                    msg += `- ${item.name}: ${item.qty} ${item.unit}${mark}%0A`;
+                });
+                msg += `%0A`;
+            });
+            window.open(`https://wa.me/${WHATSAPP_NUM}?text=${msg}`, '_blank');
+        }
+
+        function sendToWhatsApp() {
             const totalSpent = state.history.reduce((s, t) => s + t.total, 0);
             const balance = state.base - totalSpent;
+            let msg = `*🔥 BRAZA BRAVA - REPORTE JORNADA*%0A_Fecha: ${new Date().toLocaleDateString()}_%0A%0A`;
+            msg += `*💰 CAJA:*%0ABase: ${format(state.base)}%0AGastos: ${format(totalSpent)}%0ASaldo Final: ${format(balance)}%0A%0A`;
+            if (state.usageHistory.length > 0) {
+                msg += `*📉 CONSUMO DEL DÍA:*%0A`;
+                const daily = {};
+                state.usageHistory.forEach(h => h.items.forEach(it => daily[it.name] = (daily[it.name] || 0) + it.qty));
+                Object.keys(daily).forEach(n => msg += `- ${n.toUpperCase()}: ${daily[n]}%0A`);
+            }
+            window.open(`https://wa.me/${WHATSAPP_NUM}?text=${msg}`, '_blank');
+        }
 
+        function updateUI() {
+            const totalSpent = state.history.reduce((s, t) => s + (t.total || 0), 0);
+            const balance = state.base - totalSpent;
             document.getElementById('balance').innerText = format(balance);
             document.getElementById('total-spent-display').innerText = format(totalSpent);
             document.getElementById('base-display').innerText = format(state.base);
             document.getElementById('cash-display').innerText = format(balance);
-
-            renderPending();
-            renderHistory();
-            renderInventory();
+            renderPending(); renderHistory(); renderInventory();
         }
 
         function renderHistory() {
             const list = document.getElementById('history-list');
-            list.innerHTML = state.history.length ? '' : '<p class="text-center py-6 text-slate-400 text-xs italic">Sin gastos hoy</p>';
+            list.innerHTML = (state.history.length || state.usageHistory.length) ? '' : '<p class="text-center py-6 text-slate-400 text-xs italic">Sin movimientos</p>';
             state.history.slice().reverse().forEach(t => {
                 const div = document.createElement('div');
-                div.className = 'p-4 flex justify-between items-center bg-white';
-                div.innerHTML = `
-                    <div>
-                        <p class="text-xs font-bold text-slate-800 uppercase tracking-tight">${t.name}</p>
-                        <p class="text-[10px] text-slate-400 font-medium">${t.time} · ${t.qty} un. · ${t.cat}</p>
-                    </div>
-                    <p class="font-black text-slate-900 text-xs">${format(t.total)}</p>
-                `;
+                div.className = 'p-4 flex justify-between items-center bg-white border-l-4 border-rose-500';
+                div.innerHTML = `<div><p class="text-xs font-bold uppercase">${t.name}</p><p class="text-[10px] text-slate-400">${t.time} · GASTO</p></div><p class="font-black text-rose-600 text-xs">${format(t.total)}</p>`;
+                list.appendChild(div);
+            });
+            state.usageHistory.slice().reverse().forEach(h => {
+                const div = document.createElement('div');
+                div.className = 'p-4 bg-slate-50 border-l-4 border-emerald-500';
+                div.innerHTML = `<p class="text-[10px] font-bold text-emerald-600 uppercase">Uso de Stock</p><p class="text-xs italic">${h.items.map(it => `${it.qty} ${it.name}`).join(', ')}</p>`;
                 list.appendChild(div);
             });
         }
 
-        function sendToWhatsApp() {
-            if (state.history.length === 0) return toast("No hay gastos hoy");
-            const totalSpent = state.history.reduce((s, t) => s + t.total, 0);
-            const balance = state.base - totalSpent;
-            const date = new Date().toLocaleDateString();
-
-            let msg = `*🥩 BRAZA BRAVA - REPORTE*%0A`;
-            msg += `_Fecha: ${date}_%0A%0A`;
-            msg += `*RESUMEN:*%0A`;
-            msg += `💰 Base: ${format(state.base)}%0A`;
-            msg += `💸 Gastado: ${format(totalSpent)}%0A`;
-            msg += `✅ Saldo: ${format(balance)}%0A%0A`;
-            msg += `*DETALLE DE GASTOS:*%0A`;
-            state.history.forEach((t, i) => {
-                msg += `${i+1}. ${t.name.toUpperCase()} -> ${format(t.total)}%0A`;
-            });
-            
-            window.open(`https://wa.me/${WHATSAPP_NUM}?text=${msg}`, '_blank');
-        }
-
         function clearDay() {
-            if (confirm("¿Reiniciar solo los gastos del día? \n\nEl inventario y los pendientes se mantendrán.")) {
-                state.history = [];
-                save();
-                updateUI();
-                toast("Gastos reiniciados");
+            if (confirm("¿Reiniciar día? El stock actual será el inicial de mañana.")) {
+                state.inventory.forEach(i => i.startQty = i.qty);
+                state.history = []; state.usageHistory = []; save(); updateUI(); toast("Día reiniciado");
             }
         }
 
         function toggleBaseModal() {
-            const val = prompt("Ajustar Base Inicial:", state.base);
-            if (val !== null) {
-                state.base = parseFloat(val) || 0;
-                save();
-                updateUI();
-            }
+            const val = prompt("Base Inicial:", state.base);
+            if (val !== null) { state.base = parseFloat(val) || 0; save(); updateUI(); }
         }
 
         function toast(msg) {
-            const t = document.getElementById('toast');
-            t.innerText = msg;
-            t.style.opacity = '1';
+            const t = document.getElementById('toast'); t.innerText = msg; t.style.opacity = '1';
             setTimeout(() => t.style.opacity = '0', 2000);
         }
 
