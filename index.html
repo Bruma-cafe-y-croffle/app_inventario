@@ -1,695 +1,539 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { 
-  getFirestore, 
-  collection, 
-  addDoc, 
-  onSnapshot, 
-  query, 
-  orderBy, 
-  updateDoc, 
-  doc, 
-  deleteDoc, 
-  serverTimestamp,
-  getDocs
-} from 'firebase/firestore';
-import { 
-  Flame, 
-  ChefHat, 
-  PlusCircle, 
-  CheckCircle2, 
-  Clock, 
-  Trash2, 
-  ChevronRight,
-  ShoppingCart,
-  X,
-  CreditCard,
-  Receipt,
-  Smartphone,
-  Wallet,
-  Archive,
-  Send,
-  Tag,
-  Zap,
-  Split,
-  BellRing,
-  UtensilsCrossed,
-  Info,
-  Download,
-  Share2,
-  Coins,
-  MessageSquareText,
-  Plus,
-  MapPin,
-  Printer,
-  Bike,
-  Truck,
-  MessageCircle,
-  BarChart3,
-  CalendarDays,
-  ClipboardList
-} from 'lucide-react';
-
-// Firebase Config
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'braza-brava-v1';
-
-const SOUND_NUEVO_PEDIDO = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
-const SOUND_PEDIDO_LISTO = 'https://assets.mixkit.co/active_storage/sfx/2357/2357-preview.mp3';
-
-const MENU_CATEGORIES = [
-  { id: 'hamburguesas', name: 'Hamburguesas', items: [{ name: 'Sencilla Brava', price: 15000 }, { name: 'Doble Braza', price: 22000 }, { name: 'Pollo Grill', price: 18000 }] },
-  { id: 'perros_vapor', name: 'Perros al Vapor', items: [{ name: 'Sencillo Vapor', price: 10000 }, { name: 'Suizo Vapor', price: 14000 }] },
-  { id: 'perros_carbon', name: 'Perros al Carbón', items: [{ name: 'Sencillo Carbón', price: 12000 }, { name: 'Especial Carbón', price: 16000 }] },
-  { id: 'salchipapas', name: 'Salchipapas', items: [{ name: 'Salchi Sencilla', price: 12000 }, { name: 'La Brava Mix', price: 28000 }] },
-  { id: 'asados', name: 'Asados', items: [{ name: 'Carne Asada', price: 25000 }, { name: 'Pechuga Carbón', price: 22000 }, { name: 'Churrasco', price: 35000 }] },
-  { id: 'bebidas', name: 'Bebidas', items: [{ name: 'Gaseosa 350ml', price: 4000 }, { name: 'Jugo Natural', price: 6000 }] }
-];
-
-const MESAS = Array.from({ length: 15 }, (_, i) => i + 1);
-
-export default function App() {
-  const [view, setView] = useState('cliente');
-  const [user, setUser] = useState(null);
-  const [pedidos, setPedidos] = useState([]);
-  const [serviceType, setServiceType] = useState('local');
-  const [selectedMesa, setSelectedMesa] = useState('1');
-  const [destinoData, setDestinoData] = useState({ direccion: '', costoEnvio: 0 });
-  const [cart, setCart] = useState([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showCartMobile, setShowCartMobile] = useState(false);
-  
-  const audioNuevoRef = useRef(null);
-  const audioListoRef = useRef(null);
-  const prevCount = useRef({ pendientes: 0, listos: 0 });
-
-  const [payingOrder, setPayingOrder] = useState(null);
-  const [stepPayment, setStepPayment] = useState('verify'); 
-  const [tipAmount, setTipAmount] = useState(0);
-  const [cashReceived, setCashReceived] = useState('');
-  const [isSplitPayment, setIsSplitPayment] = useState(false);
-  const [splitCashAmount, setSplitCashAmount] = useState(0);
-  const [showZReport, setShowZReport] = useState(false);
-  const [cajaBase, setCajaBase] = useState(100000); 
-  const [zComments, setZComments] = useState('');
-
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Braza Brava - Gestión Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #000; color: #fff; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .ticket-font { font-family: 'Courier New', Courier, monospace; }
+        .animate-pop { animation: pop 0.3s ease-out; }
+        @keyframes pop {
+            0% { transform: scale(0.95); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
         }
-      } catch (error) { console.error(error); }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
+        @media print {
+            .no-print { display: none; }
+            .print-only { display: block; color: black !important; }
+            body { background: white; color: black; }
+        }
+    </style>
+</head>
+<body class="pb-24">
 
-  useEffect(() => {
-    if (!user) return;
-    const path = collection(db, 'artifacts', appId, 'public', 'data', 'pedidos');
-    const unsubscribe = onSnapshot(path, (snapshot) => {
-      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      const sorted = docs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
-      
-      const currentPendientes = docs.filter(p => p.estado === 'Pendiente').length;
-      const currentListos = docs.filter(p => p.estado === 'Listo' && p.pagoEstado === 'Pendiente').length;
-
-      if (currentPendientes > prevCount.current.pendientes) audioNuevoRef.current?.play().catch(() => {});
-      if (currentListos > prevCount.current.listos) audioListoRef.current?.play().catch(() => {});
-
-      prevCount.current = { pendientes: currentPendientes, listos: currentListos };
-      setPedidos(sorted);
-    }, (err) => console.error(err));
-    return () => unsubscribe();
-  }, [user]);
-
-  const addToCart = (product) => {
-    setCart(prev => [...prev, { ...product, qty: 1, notes: '', tempId: crypto.randomUUID() }]);
-  };
-
-  const removeFromCart = (tempId) => setCart(prev => prev.filter(item => item.tempId !== tempId));
-  const updateCartQty = (tempId, delta) => setCart(prev => prev.map(item => item.tempId === tempId ? { ...item, qty: Math.max(1, item.qty + delta) } : item));
-  const updateCartNotes = (tempId, notes) => setCart(prev => prev.map(item => item.tempId === tempId ? { ...item, notes } : item));
-  
-  const calculateTotal = () => cart.reduce((acc, item) => acc + (item.price * item.qty), 0);
-
-  const enviarPedidoCompleto = async () => {
-    if (cart.length === 0) return;
-    setIsSubmitting(true);
-    try {
-      const pedidosPath = collection(db, 'artifacts', appId, 'public', 'data', 'pedidos');
-      const pedidoExistente = (serviceType === 'local') ? pedidos.find(p => 
-        p.pagoEstado === 'Pendiente' && p.tipo === 'local' && p.mesa === selectedMesa
-      ) : null;
-
-      if (pedidoExistente) {
-        const nuevosItems = [...pedidoExistente.items, ...cart];
-        const nuevoTotal = nuevosItems.reduce((acc, item) => acc + (item.price * item.qty), 0);
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pedidos', pedidoExistente.id), {
-          items: nuevosItems,
-          total: nuevoTotal,
-          estado: 'Pendiente'
-        });
-      } else {
-        await addDoc(pedidosPath, {
-          items: cart,
-          tipo: serviceType,
-          mesa: serviceType === 'local' ? selectedMesa : null,
-          destino: serviceType !== 'local' ? destinoData.direccion : null,
-          costoEnvio: serviceType === 'domicilio' ? (Number(destinoData.costoEnvio) || 0) : 0,
-          total: calculateTotal(),
-          estado: 'Pendiente',
-          pagoEstado: 'Pendiente',
-          timestamp: serverTimestamp(),
-        });
-      }
-
-      setCart([]);
-      setDestinoData({ direccion: '', costoEnvio: 0 });
-      setShowCartMobile(false);
-    } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
-  };
-
-  const procesarPago = async (id, metodo, splitData = null) => {
-    const finalTotal = payingOrder.total + tipAmount + (payingOrder.costoEnvio || 0);
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pedidos', id), { 
-      pagoEstado: 'Pagado',
-      metodoPago: metodo,
-      propina: tipAmount,
-      totalFinal: finalTotal,
-      fechaPago: serverTimestamp(),
-      pagoCombinado: splitData
-    });
-    setPayingOrder(null);
-    setStepPayment('verify');
-    setCashReceived('');
-    setTipAmount(0);
-    setIsSplitPayment(false);
-  };
-
-  const formatPrice = (p) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(p);
-
-  const getDetalleCierre = () => {
-    const pagados = pedidos.filter(p => p.pagoEstado === 'Pagado');
-    
-    const efectivo = pagados.reduce((acc, p) => {
-      if (p.metodoPago === 'Efectivo') return acc + (p.totalFinal || p.total);
-      if (p.metodoPago === 'Combinado') return acc + (p.pagoCombinado?.efectivo || 0);
-      return acc;
-    }, 0);
-
-    const tarjeta = pagados.reduce((acc, p) => {
-      if (p.metodoPago === 'Tarjeta') return acc + (p.totalFinal || p.total);
-      if (p.metodoPago === 'Combinado' && p.pagoCombinado?.otro === 'Tarjeta') return acc + ((p.totalFinal || p.total) - p.pagoCombinado.efectivo);
-      return acc;
-    }, 0);
-
-    const transferencia = pagados.reduce((acc, p) => {
-      if (p.metodoPago === 'QR / Transferencia') return acc + (p.totalFinal || p.total);
-      if (p.metodoPago === 'Combinado' && p.pagoCombinado?.otro === 'Transferencia') return acc + ((p.totalFinal || p.total) - p.pagoCombinado.efectivo);
-      return acc;
-    }, 0);
-
-    const propinas = pagados.reduce((acc, p) => acc + (p.propina || 0), 0);
-    const envios = pagados.reduce((acc, p) => acc + (p.costoEnvio || 0), 0);
-    const totalVentasBrutas = pagados.reduce((acc, p) => acc + p.total, 0);
-
-    const categoriasContador = {};
-    pagados.forEach(p => {
-      p.items.forEach(item => {
-        const cat = MENU_CATEGORIES.find(c => c.items.some(i => i.name === item.name))?.name || 'Otros';
-        categoriasContador[cat] = (categoriasContador[cat] || 0) + item.qty;
-      });
-    });
-
-    return { efectivo, tarjeta, transferencia, propinas, envios, totalVentasBrutas, totalVentasNetas: totalVentasBrutas + propinas + envios, categoriasContador };
-  };
-
-  const enviarCierreWhatsApp = () => {
-    const det = getDetalleCierre();
-    const texto = `🔥 *CIERRE DETALLADO - BRAZA BRAVA* 🔥%0A` +
-      `📅 Fecha: ${new Date().toLocaleDateString()}%0A` +
-      `--------------------------------%0A` +
-      `💰 *RESUMEN DE CAJA*%0A` +
-      `Base Inicial: ${formatPrice(cajaBase)}%0A` +
-      `Ventas Efectivo: ${formatPrice(det.efectivo)}%0A` +
-      `--------------------------------%0A` +
-      `💵 *TOTAL EN CAJA (Base + Efec): ${formatPrice(cajaBase + det.efectivo)}*%0A` +
-      `--------------------------------%0A` +
-      `💳 *OTROS INGRESOS*%0A` +
-      `Tarjetas: ${formatPrice(det.tarjeta)}%0A` +
-      `Transferencias: ${formatPrice(det.transferencia)}%0A` +
-      `--------------------------------%0A` +
-      `✨ *ADICIONALES*%0A` +
-      `Propinas: ${formatPrice(det.propinas)}%0A` +
-      `Domicilios: ${formatPrice(det.envios)}%0A` +
-      `--------------------------------%0A` +
-      `📊 *VENTAS POR CATEGORÍA*%0A` +
-      Object.entries(det.categoriasContador).map(([name, qty]) => `${name}: ${qty} unidades`).join('%0A') + `%0A` +
-      `--------------------------------%0A` +
-      `📈 *VENTA TOTAL DEL TURNO: ${formatPrice(det.totalVentasNetas)}*%0A` +
-      `--------------------------------%0A` +
-      `📝 *COMENTARIOS:* ${zComments || 'Sin novedades'}`;
-    
-    window.open(`https://wa.me/?text=${texto}`, '_blank');
-  };
-
-  const renderCliente = () => {
-    const mesaTienePedido = serviceType === 'local' && pedidos.some(p => p.pagoEstado === 'Pendiente' && p.tipo === 'local' && p.mesa === selectedMesa);
-
-    return (
-      <div className="max-w-4xl mx-auto px-4 pb-40 flex flex-col md:flex-row gap-8">
-        <div className="flex-1">
-          <header className="flex items-center justify-between my-6 bg-orange-600 p-6 rounded-3xl shadow-xl">
-            <h1 className="text-2xl font-black italic flex items-center gap-2"><Flame className="fill-white" /> BRAZA BRAVA</h1>
-            <div className="md:hidden relative" onClick={() => setShowCartMobile(!showCartMobile)}>
-              <ShoppingCart size={24} />
-              {cart.length > 0 && <span className="absolute -top-2 -right-2 bg-white text-orange-600 text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-bold">{cart.length}</span>}
+    <!-- Navegación Superior -->
+    <nav class="fixed top-0 left-0 w-full bg-zinc-950/90 backdrop-blur-xl border-b border-zinc-900 z-50 px-6 py-4 no-print">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-2">
+                <i data-lucide="flame" class="text-orange-600 fill-orange-600"></i>
+                <h1 class="text-xl font-black italic tracking-tighter uppercase">Braza Brava</h1>
             </div>
-          </header>
+            <div class="flex gap-4 md:gap-8">
+                <button onclick="switchView('pedidos')" class="nav-btn text-orange-500 flex flex-col items-center gap-1" id="btn-pedidos">
+                    <i data-lucide="plus-circle" size="20"></i>
+                    <span class="text-[9px] font-black uppercase">Ventas</span>
+                </button>
+                <button onclick="switchView('cocina')" class="nav-btn text-zinc-500 flex flex-col items-center gap-1 relative" id="btn-cocina">
+                    <i data-lucide="chef-hat" size="20"></i>
+                    <span id="badge-cocina" class="hidden absolute -top-1 -right-1 bg-red-600 w-2.5 h-2.5 rounded-full border-2 border-black"></span>
+                    <span class="text-[9px] font-black uppercase">Cocina</span>
+                </button>
+                <button onclick="switchView('caja')" class="nav-btn text-zinc-500 flex flex-col items-center gap-1" id="btn-caja">
+                    <i data-lucide="receipt" size="20"></i>
+                    <span class="text-[9px] font-black uppercase">Caja</span>
+                </button>
+            </div>
+        </div>
+    </nav>
 
-          <div className="bg-zinc-900 p-4 rounded-3xl mb-6 border border-zinc-800 space-y-4">
-            <div className="grid grid-cols-3 gap-2">
-              <button onClick={() => setServiceType('local')} className={`py-3 rounded-2xl font-black text-[10px] ${serviceType === 'local' ? 'bg-orange-500 text-white shadow-lg' : 'bg-zinc-800 text-zinc-500'}`}>LOCAL</button>
-              <button onClick={() => setServiceType('llevar')} className={`py-3 rounded-2xl font-black text-[10px] ${serviceType === 'llevar' ? 'bg-orange-500 text-white shadow-lg' : 'bg-zinc-800 text-zinc-500'}`}>LLEVAR</button>
-              <button onClick={() => setServiceType('domicilio')} className={`py-3 rounded-2xl font-black text-[10px] ${serviceType === 'domicilio' ? 'bg-orange-500 text-white shadow-lg' : 'bg-zinc-800 text-zinc-500'}`}>DOMICILIO</button>
+    <!-- Contenido Principal -->
+    <main class="mt-24 px-4 max-w-6xl mx-auto">
+        <!-- Notificación de Error -->
+        <div id="error-banner" class="hidden bg-red-600 text-white p-4 rounded-2xl mb-6 text-xs font-bold text-center"></div>
+        
+        <!-- VISTA VENTAS -->
+        <section id="view-pedidos" class="view-section grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-2">
+                <!-- Selectores de Servicio -->
+                <div class="bg-zinc-900 p-4 rounded-3xl mb-6 border border-zinc-800">
+                    <div class="grid grid-cols-3 gap-2 mb-4">
+                        <button onclick="setService('local')" id="svc-local" class="svc-btn py-3 rounded-2xl font-black text-[10px] bg-orange-600">LOCAL</button>
+                        <button onclick="setService('llevar')" id="svc-llevar" class="svc-btn py-3 rounded-2xl font-black text-[10px] bg-zinc-800">LLEVAR</button>
+                        <button onclick="setService('domicilio')" id="svc-domicilio" class="svc-btn py-3 rounded-2xl font-black text-[10px] bg-zinc-800">DOMICILIO</button>
+                    </div>
+                    
+                    <div id="mesa-selector" class="flex gap-2 overflow-x-auto py-2 scrollbar-hide">
+                        <!-- Mesas JS -->
+                    </div>
+
+                    <div id="domicilio-inputs" class="hidden flex flex-col gap-3 mt-2">
+                        <input type="text" id="dom-dir" placeholder="Dirección / Cliente" class="bg-zinc-800 p-4 rounded-2xl text-sm outline-none border border-zinc-700">
+                        <input type="number" id="dom-cost" placeholder="Costo Envío ($)" class="bg-zinc-800 p-4 rounded-2xl text-sm outline-none border border-zinc-700">
+                    </div>
+                </div>
+
+                <!-- Menú -->
+                <div id="menu-container" class="space-y-8">
+                    <!-- Categorías JS -->
+                </div>
+            </div>
+
+            <!-- Carrito / Orden -->
+            <div class="lg:sticky lg:top-28 h-fit">
+                <div class="bg-zinc-900 border border-zinc-800 rounded-[40px] p-6 shadow-2xl">
+                    <h4 class="font-black italic text-xl uppercase mb-6">Tu Pedido</h4>
+                    <div id="cart-items" class="space-y-4 max-h-[40vh] overflow-y-auto pr-2 scrollbar-hide mb-6">
+                        <p class="text-zinc-600 text-xs italic text-center py-4">Carrito vacío</p>
+                    </div>
+                    <div class="border-t border-zinc-800 pt-6">
+                        <div class="flex justify-between items-end mb-6">
+                            <span class="text-[10px] font-black text-zinc-500 uppercase">Total Orden</span>
+                            <span id="cart-total" class="text-3xl font-black italic">$0</span>
+                        </div>
+                        <button onclick="sendToKitchen()" class="w-full py-5 rounded-3xl font-black text-xs uppercase bg-green-600 hover:bg-green-500 transition-all">ENVIAR A COCINA 🔥</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- VISTA COCINA -->
+        <section id="view-cocina" class="view-section hidden">
+            <h2 class="text-2xl font-black italic mb-8 border-l-4 border-orange-600 pl-4 uppercase">Cocina</h2>
+            <div id="cocina-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Pedidos Cocina JS -->
+            </div>
+        </section>
+
+        <!-- VISTA CAJA -->
+        <section id="view-caja" class="view-section hidden">
+            <div class="flex justify-between items-center mb-10">
+                <h2 class="text-2xl font-black italic border-l-4 border-green-600 pl-4 uppercase">Caja</h2>
+                <button onclick="openZReport()" class="bg-white text-black px-6 py-3 rounded-2xl text-[10px] font-black uppercase flex items-center gap-2">
+                    <i data-lucide="bar-chart-3" size="16"></i> CIERRE DETALLADO
+                </button>
             </div>
             
-            {serviceType === 'local' ? (
-              <div className="flex gap-2 overflow-x-auto py-2 scrollbar-hide">
-                {MESAS.map(m => (
-                  <button key={m} onClick={() => setSelectedMesa(m.toString())} className={`min-w-[44px] h-[44px] rounded-xl font-black text-xs transition-all relative ${selectedMesa === m.toString() ? 'bg-white text-orange-600' : 'bg-zinc-800 text-zinc-600'}`}>
-                    {m} {pedidos.some(p => p.pagoEstado === 'Pendiente' && p.tipo === 'local' && p.mesa === m.toString()) && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-3 bg-zinc-800/50 p-4 rounded-2xl border border-zinc-700">
-                  <MapPin size={18} className="text-orange-500" />
-                  <input type="text" placeholder="Dirección o nombre del cliente" className="bg-transparent text-sm outline-none flex-1 text-white" value={destinoData.direccion} onChange={(e) => setDestinoData({...destinoData, direccion: e.target.value})} />
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div id="caja-pendientes" class="lg:col-span-2 space-y-4">
+                    <!-- Cuentas pendientes JS -->
                 </div>
-                {serviceType === 'domicilio' && (
-                  <div className="flex items-center gap-3 bg-zinc-800/50 p-4 rounded-2xl border border-zinc-700">
-                    <Bike size={18} className="text-orange-500" />
-                    <input type="number" placeholder="Costo de Envío (Ej: 3000)" className="bg-transparent text-sm outline-none flex-1 text-white" value={destinoData.costoEnvio} onChange={(e) => setDestinoData({...destinoData, costoEnvio: e.target.value})} />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-8">
-            {MENU_CATEGORIES.map(cat => (
-              <div key={cat.id}>
-                <h3 className="font-black text-[10px] uppercase tracking-widest mb-3 ml-2 flex items-center gap-2 text-orange-500"><UtensilsCrossed size={14}/> {cat.name}</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  {cat.items.map(item => (
-                    <button key={item.name} onClick={() => addToCart(item)} className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex flex-col items-start active:scale-95 transition-all text-left">
-                      <span className="font-bold text-xs text-zinc-100 mb-1">{item.name}</span>
-                      <span className="font-black text-xs text-orange-500">{formatPrice(item.price)}</span>
-                    </button>
-                  ))}
+                <div id="caja-resumen" class="bg-zinc-900 p-6 rounded-[40px] border border-zinc-800 h-fit">
+                    <!-- Resumen parcial JS -->
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className={`${showCartMobile ? 'fixed inset-0 z-[110] bg-black/95 p-4 flex items-center justify-center' : 'hidden'} md:block md:relative md:w-96 md:pt-6`}>
-          <div className="bg-zinc-950 border border-zinc-800 rounded-[40px] p-6 w-full max-w-sm h-full max-h-[85vh] flex flex-col shadow-2xl">
-            <div className="flex justify-between items-center mb-6">
-              <h4 className="font-black italic text-xl uppercase tracking-tighter">{mesaTienePedido ? 'Adición' : 'Nueva Orden'}</h4>
-              <button className="md:hidden bg-zinc-900 p-2 rounded-full" onClick={() => setShowCartMobile(false)}><X size={20}/></button>
             </div>
+        </section>
+    </main>
+
+    <!-- MODALES Y SCRIPTS -->
+    <div id="modal-pago" class="fixed inset-0 z-[100] bg-black/95 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-zinc-900 border border-zinc-800 w-full max-w-lg rounded-[48px] p-8 shadow-2xl relative">
+            <button onclick="closeModal('modal-pago')" class="absolute top-6 right-6 text-zinc-500"><i data-lucide="x"></i></button>
+            <div id="pago-content"></div>
+        </div>
+    </div>
+
+    <div id="modal-cierre" class="fixed inset-0 z-[100] bg-black/95 hidden flex items-center justify-center p-4 backdrop-blur-md overflow-y-auto">
+        <div class="bg-zinc-50 text-black w-full max-w-lg rounded-[48px] p-8 ticket-font shadow-2xl relative my-8 overflow-hidden">
+            <button onclick="closeModal('modal-cierre')" class="absolute top-6 right-6 text-zinc-400 no-print"><i data-lucide="x"></i></button>
+            <div id="cierre-content"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, updateDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        // CONFIGURACIÓN DE AMBIENTE
+        const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = window.__app_id || 'braza-brava-v1';
+
+        // ESTADO GLOBAL
+        let currentUser = null;
+        let state = {
+            view: 'pedidos',
+            serviceType: 'local',
+            selectedMesa: '1',
+            cart: [],
+            pedidos: [],
+            payingOrder: null,
+            baseCaja: 100000
+        };
+
+        const MENU = [
+            { cat: 'Hamburguesas', items: [{n:'Sencilla Brava', p:15000}, {n:'Doble Braza', p:22000}] },
+            { cat: 'Perros Vapor', items: [{n:'Sencillo Vapor', p:10000}, {n:'Especial Vapor', p:14000}] },
+            { cat: 'Salchipapas', items: [{n:'Salchi Sencilla', p:12000}, {n:'Brava Mix', p:28000}] },
+            { cat: 'Bebidas', items: [{n:'Gaseosa', p:4500}, {n:'Jugo Natural', p:6000}] }
+        ];
+
+        // INICIALIZACIÓN SEGURA
+        async function init() {
+            lucide.createIcons();
+            renderMenu();
+            renderMesas();
+
+            // Regla 3: Autenticar PRIMERO
+            try {
+                if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
+                    await signInWithCustomToken(auth, window.__initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                showError("Error de autenticación: " + err.message);
+            }
+
+            // Escuchar cambios de auth antes de cualquier operación Firestore
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    currentUser = user;
+                    startDataListener();
+                } else {
+                    currentUser = null;
+                    showError("No se ha podido validar la identidad del usuario.");
+                }
+            });
+        }
+
+        function startDataListener() {
+            // Regla 1: Usar path estricto /artifacts/{appId}/public/data/{collection}
+            const pedidosRef = collection(db, 'artifacts', appId, 'public', 'data', 'pedidos');
             
-            <div className="flex-grow overflow-y-auto space-y-4 scrollbar-hide">
-              {cart.map((item) => (
-                <div key={item.tempId} className="bg-zinc-900/80 p-4 rounded-3xl border border-zinc-800">
-                  <div className="flex justify-between font-bold text-xs mb-3">
-                    <span>{item.name}</span>
-                    <button onClick={() => removeFromCart(item.tempId)} className="text-zinc-500 hover:text-red-500"><Trash2 size={16}/></button>
-                  </div>
-                  <div className="flex items-center gap-2 mb-3 bg-black/30 p-2 rounded-xl border border-zinc-800/50">
-                    <MessageSquareText size={14} className="text-zinc-500" />
-                    <input type="text" placeholder="Notas..." className="bg-transparent text-[11px] outline-none flex-1 text-zinc-300" value={item.notes} onChange={(e) => updateCartNotes(item.tempId, e.target.value)} />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 bg-black/50 px-3 py-1 rounded-2xl border border-zinc-800">
-                      <button onClick={() => updateCartQty(item.tempId, -1)} className="text-orange-500 font-black">-</button>
-                      <span className="text-xs font-black">{item.qty}</span>
-                      <button onClick={() => updateCartQty(item.tempId, 1)} className="text-orange-500 font-black">+</button>
-                    </div>
-                    <span className="text-zinc-400 font-bold text-xs">{formatPrice(item.price * item.qty)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            onSnapshot(pedidosRef, 
+                (snap) => {
+                    state.pedidos = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                    updateUI();
+                },
+                (err) => {
+                    console.error("Firestore Error:", err);
+                    showError("Error de permisos en tiempo real. Verifique la conexión.");
+                }
+            );
+        }
 
-            <div className="mt-6 pt-6 border-t border-zinc-800">
-              <div className="flex justify-between items-end mb-6">
-                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Subtotal</span>
-                <span className="text-3xl font-black text-white italic">{formatPrice(calculateTotal())}</span>
-              </div>
-              <button 
-                disabled={cart.length === 0 || isSubmitting || (serviceType !== 'local' && !destinoData.direccion)} 
-                onClick={enviarPedidoCompleto} 
-                className="w-full py-5 rounded-3xl font-black text-xs uppercase bg-green-600 disabled:opacity-20 active:scale-95 transition-all"
-              >
-                {isSubmitting ? 'ENVIANDO...' : 'ENVIAR A COCINA 🔥'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
+        function showError(msg) {
+            const banner = document.getElementById('error-banner');
+            banner.innerText = msg;
+            banner.classList.remove('hidden');
+            setTimeout(() => banner.classList.add('hidden'), 5000);
+        }
 
-  const renderCocina = () => (
-    <div className="max-w-7xl mx-auto px-4 pb-20 pt-4 text-white">
-      <h1 className="text-3xl font-black italic mb-8 border-l-4 border-orange-600 pl-4 uppercase tracking-tighter">Cocina</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {pedidos.filter(p => p.estado !== 'Listo').map((pedido) => (
-          <div key={pedido.id} className="bg-zinc-900 rounded-[40px] p-6 border-t-8 border-orange-600 flex flex-col shadow-2xl">
-            <div className="mb-6">
-              <span className="text-[10px] font-black px-2 py-1 rounded uppercase bg-white text-black">
-                {pedido.tipo === 'local' ? `Mesa ${pedido.mesa}` : pedido.tipo.toUpperCase()}
-              </span>
-              {pedido.destino && <p className="text-[10px] text-orange-400 font-bold uppercase mt-2 flex items-center gap-1"><MapPin size={10} /> {pedido.destino}</p>}
-            </div>
-            <div className="flex-grow space-y-4 mb-8">
-              {pedido.items.map((it, i) => (
-                <div key={i} className="flex gap-3 border-b border-zinc-800 pb-3 last:border-0">
-                  <span className="bg-orange-600 text-white text-xs font-black px-2 py-1 rounded-lg h-fit">{it.qty}</span>
-                  <div>
-                    <span className="text-sm font-bold">{it.name}</span>
-                    {it.notes && <p className="text-[11px] text-orange-400 italic"> - {it.notes}</p>}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <button 
-              onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pedidos', pedido.id), { estado: pedido.estado === 'Pendiente' ? 'Preparando' : 'Listo' })} 
-              className={`w-full py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest ${pedido.estado === 'Pendiente' ? 'bg-blue-600' : 'bg-green-600'}`}
-            >
-              {pedido.estado === 'Pendiente' ? 'COMENZAR' : 'LISTO'}
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+        // FUNCIONES DE NAVEGACIÓN
+        window.switchView = (v) => {
+            state.view = v;
+            document.querySelectorAll('.view-section').forEach(s => s.classList.add('hidden'));
+            document.getElementById(`view-${v}`).classList.remove('hidden');
+            
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.replace('text-orange-500', 'text-zinc-500'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.replace('text-green-500', 'text-zinc-500'));
+            const color = v === 'caja' ? 'text-green-500' : 'text-orange-500';
+            document.getElementById(`btn-${v}`).classList.replace('text-zinc-500', color);
+            updateUI();
+        };
 
-  const renderCaja = () => {
-    const porCobrar = pedidos.filter(p => p.pagoEstado === 'Pendiente');
-    const detalle = getDetalleCierre();
+        window.setService = (s) => {
+            state.serviceType = s;
+            document.querySelectorAll('.svc-btn').forEach(b => b.classList.replace('bg-orange-600', 'bg-zinc-800'));
+            document.getElementById(`svc-${s}`).classList.replace('bg-zinc-800', 'bg-orange-600');
+            document.getElementById('mesa-selector').classList.toggle('hidden', s !== 'local');
+            document.getElementById('domicilio-inputs').classList.toggle('hidden', s !== 'domicilio');
+        };
 
-    return (
-      <div className="max-w-5xl mx-auto px-4 pb-20 pt-4">
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
-          <div>
-            <h1 className="text-3xl font-black italic border-l-4 border-green-600 pl-4 uppercase tracking-tighter text-white">Caja Central</h1>
-            <p className="text-[10px] text-zinc-500 uppercase mt-1 font-black">Turno actual en curso</p>
-          </div>
-          <button onClick={() => setShowZReport(true)} className="bg-white text-black px-8 py-4 rounded-3xl text-xs font-black uppercase flex items-center gap-2 shadow-2xl transition-transform active:scale-95">
-            <BarChart3 size={18} /> GENERAR CIERRE DETALLADO
-          </button>
-        </header>
+        // GESTIÓN DE CARRITO
+        window.addToCart = (name, price) => {
+            state.cart.push({ name, price, qty: 1, id: Date.now() });
+            updateUI();
+        };
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-4">
-            <h3 className="text-xs font-black uppercase text-zinc-500 mb-4 flex items-center gap-2"><ClipboardList size={16}/> Cuentas Pendientes</h3>
-            {porCobrar.length === 0 ? (
-              <div className="bg-zinc-900/50 p-10 rounded-[32px] border border-dashed border-zinc-800 text-center">
-                <p className="text-xs font-bold text-zinc-600 italic">No hay cuentas por cobrar en este momento.</p>
-              </div>
-            ) : porCobrar.map(p => (
-              <div key={p.id} className="bg-zinc-900 p-6 rounded-[32px] flex justify-between items-center border border-zinc-800 hover:border-zinc-700 transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className={`p-4 rounded-2xl ${p.estado === 'Listo' ? 'bg-green-600 text-white shadow-lg' : 'bg-zinc-800 text-zinc-500'}`}>
-                    {p.estado === 'Listo' ? <CheckCircle2 size={20}/> : <Clock size={20}/>}
-                  </div>
-                  <div>
-                    <h4 className="font-black text-base uppercase italic text-white">{p.tipo === 'local' ? `Mesa ${p.mesa}` : p.tipo.toUpperCase()}</h4>
-                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Items: {p.items.length}</span>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end gap-2">
-                  <span className="text-xl font-black italic text-white">{formatPrice(p.total + (p.costoEnvio || 0))}</span>
-                  <button onClick={() => { setPayingOrder(p); setStepPayment('verify'); }} className="bg-green-600 px-6 py-3 rounded-2xl font-black text-[10px] uppercase shadow-lg text-white active:scale-95 transition-all">COBRAR</button>
-                </div>
-              </div>
-            ))}
-          </div>
+        window.updateQty = (id, delta) => {
+            const item = state.cart.find(i => i.id === id);
+            if (item) {
+                item.qty = Math.max(1, item.qty + delta);
+                if (item.qty === 0) state.cart = state.cart.filter(i => i.id !== id);
+            }
+            updateUI();
+        };
 
-          <div className="space-y-6">
-            <h3 className="text-xs font-black uppercase text-zinc-500 mb-4 flex items-center gap-2"><BarChart3 size={16}/> Resumen Parcial</h3>
-            <div className="bg-zinc-900 p-6 rounded-[40px] border border-zinc-800 space-y-6">
-              <div className="space-y-2">
-                <span className="text-[10px] font-black text-zinc-500 uppercase">Ventas Netas</span>
-                <p className="text-3xl font-black italic">{formatPrice(detalle.totalVentasBrutas)}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-4 border-t border-zinc-800 pt-6">
+        // ACCIONES FIREBASE (Guardia de usuario presente)
+        window.sendToKitchen = async () => {
+            if (!currentUser || state.cart.length === 0) return;
+            const dir = document.getElementById('dom-dir').value;
+            const cost = Number(document.getElementById('dom-cost').value) || 0;
+
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'pedidos'), {
+                    items: state.cart,
+                    tipo: state.serviceType,
+                    mesa: state.serviceType === 'local' ? state.selectedMesa : null,
+                    destino: dir || null,
+                    costoEnvio: cost,
+                    total: state.cart.reduce((a, b) => a + (b.price * b.qty), 0),
+                    estado: 'Pendiente',
+                    pagoEstado: 'Pendiente',
+                    timestamp: serverTimestamp(),
+                    createdBy: currentUser.uid
+                });
+                state.cart = [];
+                document.getElementById('dom-dir').value = '';
+                document.getElementById('dom-cost').value = '';
+                updateUI();
+            } catch (e) {
+                showError("Error al enviar: Permisos denegados.");
+            }
+        };
+
+        window.updateEstado = async (id, nuevo) => {
+            if (!currentUser) return;
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pedidos', id), { estado: nuevo });
+        };
+
+        window.procesarPago = async (metodo, propina = 0) => {
+            if (!currentUser || !state.payingOrder) return;
+            const final = state.payingOrder.total + state.payingOrder.costoEnvio + propina;
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pedidos', state.payingOrder.id), {
+                pagoEstado: 'Pagado',
+                metodoPago: metodo,
+                propina: propina,
+                totalFinal: final,
+                fechaPago: serverTimestamp()
+            });
+            closeModal('modal-pago');
+        };
+
+        // RENDERERS (UI)
+        function renderMenu() {
+            const container = document.getElementById('menu-container');
+            container.innerHTML = MENU.map(c => `
                 <div>
-                  <span className="text-[9px] font-bold text-zinc-500 uppercase">Propinas</span>
-                  <p className="font-black text-green-500">{formatPrice(detalle.propinas)}</p>
-                </div>
-                <div>
-                  <span className="text-[9px] font-bold text-zinc-500 uppercase">Domicilios</span>
-                  <p className="font-black text-blue-500">{formatPrice(detalle.envios)}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Modal Pago */}
-        {payingOrder && (
-          <div className="fixed inset-0 z-[150] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm overflow-y-auto">
-            <div className="bg-zinc-900 border border-zinc-800 w-full max-w-lg rounded-[48px] p-8 shadow-2xl relative text-white">
-              <button onClick={() => setPayingOrder(null)} className="absolute top-6 right-6 bg-zinc-800 p-2 rounded-full hover:bg-zinc-700 transition-colors"><X size={20}/></button>
-              
-              {stepPayment === 'verify' && (
-                <div className="animate-in slide-in-from-bottom duration-300">
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-orange-500 mb-6 flex items-center gap-2"><Receipt size={16}/> Detalle de Cuenta</h3>
-                  
-                  <div className="bg-zinc-100 text-black p-8 rounded-3xl mb-6 font-mono text-xs shadow-inner">
-                    <div className="text-center mb-4 pb-4 border-b border-dashed border-zinc-300">
-                      <p className="font-black text-lg">BRAZA BRAVA</p>
-                      <p className="font-bold">{payingOrder.tipo === 'local' ? `MESA ${payingOrder.mesa}` : payingOrder.tipo.toUpperCase()}</p>
+                    <h3 class="text-[10px] font-black uppercase text-orange-500 mb-3 flex items-center gap-2">
+                        <i data-lucide="utensils-crossed" size="14"></i> ${c.cat}
+                    </h3>
+                    <div class="grid grid-cols-2 gap-3">
+                        ${c.items.map(i => `
+                            <button onclick="addToCart('${i.n}', ${i.p})" class="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl text-left active:scale-95 transition-all">
+                                <p class="font-bold text-xs">${i.n}</p>
+                                <p class="font-black text-orange-500 text-xs mt-1">$${i.p.toLocaleString()}</p>
+                            </button>
+                        `).join('')}
                     </div>
-                    {payingOrder.items.map((it, i) => (
-                      <div key={i} className="flex justify-between mb-1">
-                        <span>{it.qty}x {it.name}</span>
-                        <span>{formatPrice(it.price * it.qty)}</span>
-                      </div>
-                    ))}
-                    <div className="mt-4 pt-4 border-t border-dashed border-zinc-300 space-y-1">
-                      <div className="flex justify-between font-bold"><span>Subtotal:</span><span>{formatPrice(payingOrder.total)}</span></div>
-                      {payingOrder.costoEnvio > 0 && <div className="flex justify-between"><span>Domicilio:</span><span>{formatPrice(payingOrder.costoEnvio)}</span></div>}
-                      {tipAmount > 0 && <div className="flex justify-between text-green-700 font-bold italic"><span>Propina:</span><span>+ {formatPrice(tipAmount)}</span></div>}
-                      <div className="flex justify-between text-xl font-black pt-4 border-t border-zinc-200 mt-2"><span>TOTAL:</span><span>{formatPrice(payingOrder.total + tipAmount + (payingOrder.costoEnvio || 0))}</span></div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 mb-6">
-                    <div className="col-span-2 text-[10px] font-black uppercase text-zinc-500 mb-1 ml-2">¿Propina Voluntaria?</div>
-                    <button onClick={() => setTipAmount(payingOrder.total * 0.1)} className={`py-4 rounded-2xl text-[10px] font-black border transition-colors ${tipAmount === payingOrder.total * 0.1 ? 'bg-orange-600 border-orange-600' : 'border-zinc-800 bg-zinc-800 text-zinc-500'}`}>10% ({formatPrice(payingOrder.total * 0.1)})</button>
-                    <input type="number" placeholder="Otro valor..." className="bg-zinc-800 rounded-2xl p-4 text-[10px] font-black outline-none border border-zinc-800 focus:border-orange-500 transition-colors" onChange={(e) => setTipAmount(Number(e.target.value))}/>
-                  </div>
-
-                  <button onClick={() => setStepPayment('method')} className="w-full bg-green-600 py-5 rounded-3xl font-black text-xs uppercase shadow-lg active:scale-95 transition-all">ELEGIR MÉTODO DE PAGO <ChevronRight className="inline ml-1" size={16}/></button>
                 </div>
-              )}
+            `).join('');
+            lucide.createIcons();
+        }
 
-              {stepPayment === 'method' && (
-                <div className="animate-in slide-in-from-right duration-300">
-                  <h3 className="text-2xl font-black italic uppercase mb-8 text-center">Método de Pago</h3>
-                  <div className="grid grid-cols-2 gap-3 mb-6">
-                    <button onClick={() => setStepPayment('cash')} className="flex flex-col items-center gap-3 bg-zinc-800 p-6 rounded-3xl hover:bg-orange-600 transition-all border border-zinc-700 hover:border-orange-400 group">
-                      <Wallet size={24} className="group-hover:scale-110 transition-transform"/>
-                      <span className="text-[10px] font-black">EFECTIVO</span>
-                    </button>
-                    <button onClick={() => procesarPago(payingOrder.id, 'Tarjeta')} className="flex flex-col items-center gap-3 bg-zinc-800 p-6 rounded-3xl hover:bg-blue-600 transition-all border border-zinc-700 hover:border-blue-400 group">
-                      <CreditCard size={24} className="group-hover:scale-110 transition-transform"/>
-                      <span className="text-[10px] font-black">TARJETA</span>
-                    </button>
-                    <button onClick={() => procesarPago(payingOrder.id, 'QR / Transferencia')} className="flex flex-col items-center gap-3 bg-zinc-800 p-6 rounded-3xl hover:bg-purple-600 transition-all border border-zinc-700 hover:border-purple-400 group">
-                      <Smartphone size={24} className="group-hover:scale-110 transition-transform"/>
-                      <span className="text-[10px] font-black">QR / TRANSF</span>
-                    </button>
-                    <button onClick={() => setIsSplitPayment(!isSplitPayment)} className={`flex flex-col items-center gap-3 p-6 rounded-3xl transition-all border ${isSplitPayment ? 'bg-white text-black border-white shadow-xl' : 'bg-zinc-800 text-white border-zinc-700 hover:border-zinc-500'}`}>
-                      <Split size={24} />
-                      <span className="text-[10px] font-black">COMBINADO</span>
-                    </button>
-                  </div>
-
-                  {isSplitPayment && (
-                    <div className="bg-white/5 p-6 rounded-3xl space-y-4 border border-zinc-700 animate-in zoom-in duration-200">
-                      <p className="text-[10px] font-black uppercase text-orange-500 text-center tracking-widest">Configurar Pago Combinado</p>
-                      <div>
-                        <span className="text-[9px] font-bold text-zinc-500 uppercase ml-2">¿Cuánto pagan en Efectivo?</span>
-                        <input type="number" className="bg-zinc-800 w-full p-4 rounded-2xl text-xl font-black mt-1 outline-none border border-zinc-700" placeholder="0" value={splitCashAmount} onChange={(e) => setSplitCashAmount(Number(e.target.value))}/>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button onClick={() => procesarPago(payingOrder.id, 'Combinado', { efectivo: splitCashAmount, otro: 'Tarjeta' })} className="bg-blue-600 p-4 rounded-xl text-[9px] font-black uppercase shadow-lg">Resto Tarjeta</button>
-                        <button onClick={() => procesarPago(payingOrder.id, 'Combinado', { efectivo: splitCashAmount, otro: 'Transferencia' })} className="bg-purple-600 p-4 rounded-xl text-[9px] font-black uppercase shadow-lg">Resto Transf</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {stepPayment === 'cash' && (
-                <div className="text-center animate-in slide-in-from-right">
-                  <div className="bg-black/40 p-10 rounded-3xl border border-zinc-800 mb-8 shadow-inner">
-                    <span className="text-[10px] font-black uppercase opacity-50 block mb-2 tracking-widest">Efectivo Recibido</span>
-                    <input type="number" autoFocus className="bg-transparent text-6xl font-black text-white outline-none w-full text-center placeholder-zinc-800" placeholder="0" onChange={(e) => setCashReceived(e.target.value)} />
-                  </div>
-                  <div className="mb-10">
-                    <span className="text-[10px] uppercase font-black text-orange-500 block mb-1 tracking-widest italic">Cambio a entregar</span>
-                    <h3 className="text-5xl font-black text-white italic">{formatPrice(Math.max(0, Number(cashReceived) - (payingOrder.total + tipAmount + (payingOrder.costoEnvio || 0))))}</h3>
-                  </div>
-                  <button onClick={() => procesarPago(payingOrder.id, 'Efectivo')} className="w-full bg-green-600 py-6 rounded-3xl font-black text-sm uppercase shadow-2xl active:scale-95 transition-all">CONFIRMAR PAGO RECIBIDO 🔥</button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Cierre de Caja Detallado */}
-        {showZReport && (
-          <div className="fixed inset-0 z-[200] bg-black/98 flex items-center justify-center p-4 backdrop-blur-md overflow-y-auto">
-            <div className="bg-zinc-50 text-black w-full max-w-lg rounded-[48px] p-8 font-mono shadow-2xl relative my-8">
-              <button onClick={() => setShowZReport(false)} className="absolute top-6 right-6 bg-zinc-200 p-2 rounded-full hover:bg-zinc-300 transition-colors"><X size={18}/></button>
-              
-              <div className="text-center mb-8 border-b border-zinc-300 pb-6">
-                <h3 className="text-2xl font-black italic uppercase tracking-tighter">CIERRE DETALLADO</h3>
-                <div className="flex items-center justify-center gap-2 mt-1 text-zinc-500 font-bold text-[10px]">
-                  <CalendarDays size={12}/> {new Date().toLocaleDateString()} | <Clock size={12}/> {new Date().toLocaleTimeString()}
-                </div>
-              </div>
-
-              <div className="space-y-6 mb-8 overflow-y-auto max-h-[60vh] pr-2 scrollbar-hide">
-                {/* Ingresos Base y Efectivo */}
-                <div className="bg-white p-6 rounded-3xl border border-zinc-200 shadow-sm">
-                  <span className="text-[10px] font-black uppercase text-zinc-400 block mb-4 border-b border-zinc-100 pb-2">Control de Efectivo</span>
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="text-xs font-bold">Base Caja:</span>
-                    <div className="flex items-center gap-2 bg-zinc-100 px-3 py-1 rounded-xl">
-                      <span className="font-black">$</span>
-                      <input type="number" className="font-black outline-none w-20 bg-transparent text-right" value={cajaBase} onChange={(e) => setCajaBase(Number(e.target.value))}/>
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="text-xs font-bold">Ventas Efectivo:</span>
-                    <span className="font-black text-zinc-700">{formatPrice(detalle.efectivo)}</span>
-                  </div>
-                  <div className="bg-zinc-900 text-white p-4 rounded-2xl flex justify-between items-center mt-2">
-                    <span className="text-[10px] font-black uppercase">Efectivo Total en Caja:</span>
-                    <span className="text-lg font-black italic">{formatPrice(cajaBase + detalle.efectivo)}</span>
-                  </div>
-                </div>
-
-                {/* Otros Medios */}
-                <div className="bg-white p-6 rounded-3xl border border-zinc-200 shadow-sm">
-                  <span className="text-[10px] font-black uppercase text-zinc-400 block mb-4 border-b border-zinc-100 pb-2">Otros Medios de Pago</span>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-xs font-bold text-blue-600">Tarjetas:</span>
-                    <span className="font-black">{formatPrice(detalle.tarjeta)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-purple-600">Transferencias:</span>
-                    <span className="font-black">{formatPrice(detalle.transferencia)}</span>
-                  </div>
-                </div>
-
-                {/* Desglose Ventas Categoría */}
-                <div className="bg-white p-6 rounded-3xl border border-zinc-200 shadow-sm">
-                  <span className="text-[10px] font-black uppercase text-zinc-400 block mb-4 border-b border-zinc-100 pb-2">Ventas por Categoría</span>
-                  <div className="space-y-2">
-                    {Object.entries(detalle.categoriasContador).map(([cat, qty]) => (
-                      <div key={cat} className="flex justify-between text-xs font-bold">
-                        <span className="text-zinc-600">{cat}:</span>
-                        <span className="font-black">{qty} unds</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Resumen Adicionales */}
-                <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100">
-                  <span className="text-[10px] font-black uppercase text-orange-400 block mb-4 border-b border-orange-200 pb-2 text-center">Resumen del Turno</span>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs"><span>Venta Bruta:</span><span className="font-bold">{formatPrice(detalle.totalVentasBrutas)}</span></div>
-                    <div className="flex justify-between text-xs"><span>Propinas:</span><span className="font-bold text-green-600">+ {formatPrice(detalle.propinas)}</span></div>
-                    <div className="flex justify-between text-xs"><span>Envíos:</span><span className="font-bold text-blue-600">+ {formatPrice(detalle.envios)}</span></div>
-                    <div className="flex justify-between text-base font-black border-t border-orange-200 pt-3 mt-2">
-                      <span>VENTA TOTAL:</span>
-                      <span className="italic">{formatPrice(detalle.totalVentasNetas)}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white p-4 rounded-3xl border border-zinc-200 shadow-sm">
-                  <span className="text-[10px] font-black uppercase text-zinc-400 block mb-2 flex items-center gap-2"><MessageSquareText size={14}/> Novedades del Turno</span>
-                  <textarea className="w-full bg-zinc-50 p-3 rounded-xl text-[11px] outline-none h-24 resize-none border border-zinc-100 font-sans" placeholder="Describe cualquier novedad relevante..." value={zComments} onChange={(e) => setZComments(e.target.value)}></textarea>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <button onClick={enviarCierreWhatsApp} className="w-full bg-green-600 text-white py-5 rounded-3xl font-black text-xs uppercase flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all">
-                  <MessageCircle size={20}/> ENVIAR REPORTE A WHATSAPP
+        function renderMesas() {
+            const container = document.getElementById('mesa-selector');
+            container.innerHTML = Array.from({length:15}, (_,i) => i+1).map(m => `
+                <button onclick="state.selectedMesa='${m}'; updateUI();" class="min-w-[44px] h-[44px] rounded-xl font-black text-xs ${state.selectedMesa == m ? 'bg-white text-black' : 'bg-zinc-800 text-zinc-500'}">
+                    ${m}
                 </button>
-                <button onClick={() => window.print()} className="w-full bg-zinc-900 text-white py-5 rounded-3xl font-black text-xs uppercase flex items-center justify-center gap-3 shadow-lg hover:bg-black transition-colors">
-                  <Printer size={20}/> IMPRIMIR TICKET DE CIERRE
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
+            `).join('');
+        }
 
-  return (
-    <div className="min-h-screen bg-black text-white font-sans selection:bg-orange-500">
-      <audio ref={audioNuevoRef} src={SOUND_NUEVO_PEDIDO} preload="auto" />
-      <audio ref={audioListoRef} src={SOUND_PEDIDO_LISTO} preload="auto" />
-      
-      <nav className="fixed bottom-0 left-0 w-full bg-zinc-950/90 backdrop-blur-xl border-t border-zinc-900 z-[100] px-6 py-5 flex justify-around md:top-0 md:bottom-auto md:justify-center md:gap-32">
-        <button onClick={() => setView('cliente')} className={`flex flex-col items-center gap-1 transition-all ${view === 'cliente' ? 'text-orange-500 scale-110' : 'text-zinc-600 hover:text-zinc-400'}`}>
-          <PlusCircle size={24} /><span className="text-[9px] font-black uppercase">Nuevo Pedido</span>
-        </button>
-        <button onClick={() => setView('cocina')} className={`relative flex flex-col items-center gap-1 transition-all ${view === 'cocina' ? 'text-orange-500 scale-110' : 'text-zinc-600 hover:text-zinc-400'}`}>
-          <ChefHat size={24} />
-          {pedidos.filter(p => p.estado === 'Pendiente').length > 0 && <span className="absolute -top-1 -right-1 bg-red-600 w-2.5 h-2.5 rounded-full animate-pulse border-2 border-black"></span>}
-          <span className="text-[9px] font-black uppercase">Cocina</span>
-        </button>
-        <button onClick={() => setView('caja')} className={`flex flex-col items-center gap-1 transition-all ${view === 'caja' ? 'text-green-500 scale-110' : 'text-zinc-600 hover:text-zinc-400'}`}>
-          <Receipt size={24} /><span className="text-[9px] font-black uppercase">Caja</span>
-        </button>
-      </nav>
+        function updateUI() {
+            // Actualizar Carrito
+            const cartList = document.getElementById('cart-items');
+            if (state.cart.length === 0) {
+                cartList.innerHTML = `<p class="text-zinc-600 text-xs italic text-center py-4">Carrito vacío</p>`;
+            } else {
+                cartList.innerHTML = state.cart.map(i => `
+                    <div class="bg-zinc-800/50 p-4 rounded-2xl border border-zinc-800 flex justify-between items-center">
+                        <div>
+                            <p class="font-bold text-xs">${i.name}</p>
+                            <p class="text-[10px] text-zinc-500">$${(i.price * i.qty).toLocaleString()}</p>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button onclick="updateQty(${i.id}, -1)" class="text-orange-500 font-black">-</button>
+                            <span class="text-xs font-black">${i.qty}</span>
+                            <button onclick="updateQty(${i.id}, 1)" class="text-orange-500 font-black">+</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            const total = state.cart.reduce((a, b) => a + (b.price * b.qty), 0);
+            document.getElementById('cart-total').innerText = `$${total.toLocaleString()}`;
 
-      <main className="pt-2 md:pt-32 min-h-screen">
-        {!user ? (
-          <div className="h-[80vh] flex flex-col items-center justify-center">
-            <Flame className="animate-pulse text-orange-600" size={60}/><p className="text-[10px] font-black mt-4 uppercase tracking-widest opacity-40">Cargando Braza Brava...</p>
-          </div>
-        ) : (
-          <div className="animate-in fade-in duration-700">
-            {view === 'cliente' ? renderCliente() : view === 'cocina' ? renderCocina() : renderCaja()}
-          </div>
-        )}
-      </main>
-    </div>
-  );
-}
+            // Cocina
+            const cocinaGrid = document.getElementById('cocina-grid');
+            const pendientes = state.pedidos.filter(p => p.estado !== 'Listo');
+            document.getElementById('badge-cocina').classList.toggle('hidden', pendientes.length === 0);
+            cocinaGrid.innerHTML = pendientes.map(p => `
+                <div class="bg-zinc-900 rounded-3xl p-6 border-t-4 border-orange-600 animate-pop">
+                    <div class="flex justify-between items-start mb-4">
+                        <span class="bg-white text-black px-2 py-1 rounded text-[10px] font-black uppercase">
+                            ${p.tipo === 'local' ? 'Mesa '+p.mesa : p.tipo}
+                        </span>
+                        <span class="text-[9px] text-zinc-500">
+                            ${p.timestamp ? new Date(p.timestamp.seconds*1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '--:--'}
+                        </span>
+                    </div>
+                    <div class="space-y-2 mb-6">
+                        ${p.items.map(it => `<p class="text-xs font-bold text-zinc-300">${it.qty}x ${it.name}</p>`).join('')}
+                    </div>
+                    <button onclick="updateEstado('${p.id}', '${p.estado === 'Pendiente' ? 'Cocinando' : 'Listo'}')" class="w-full py-3 rounded-xl text-[10px] font-black uppercase ${p.estado === 'Pendiente' ? 'bg-blue-600' : 'bg-green-600'}">
+                        ${p.estado === 'Pendiente' ? 'COMENZAR' : 'TERMINAR'}
+                    </button>
+                </div>
+            `).join('');
+
+            // Caja
+            if (state.view === 'caja') {
+                const pend = state.pedidos.filter(p => p.pagoEstado === 'Pendiente');
+                document.getElementById('caja-pendientes').innerHTML = pend.map(p => `
+                    <div class="bg-zinc-900 p-6 rounded-3xl flex justify-between items-center border border-zinc-800">
+                        <div>
+                            <p class="font-black italic uppercase">${p.tipo === 'local' ? 'Mesa '+p.mesa : p.tipo}</p>
+                            <p class="text-[10px] text-zinc-500 uppercase">${p.items.length} productos</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-lg font-black italic">$${(p.total + p.costoEnvio).toLocaleString()}</p>
+                            <button onclick="openPago('${p.id}')" class="bg-green-600 px-4 py-2 rounded-xl text-[9px] font-black uppercase mt-2">COBRAR</button>
+                        </div>
+                    </div>
+                `).join('');
+
+                const stats = getStats();
+                document.getElementById('caja-resumen').innerHTML = `
+                    <p class="text-[10px] font-black text-zinc-500 uppercase mb-4">Resumen Turno</p>
+                    <div class="space-y-4">
+                        <div class="flex justify-between">
+                            <span class="text-xs font-bold">Venta Bruta:</span>
+                            <span class="font-black">$${stats.bruta.toLocaleString()}</span>
+                        </div>
+                        <div class="flex justify-between text-green-500">
+                            <span class="text-xs font-bold">Propinas:</span>
+                            <span class="font-black">$${stats.propinas.toLocaleString()}</span>
+                        </div>
+                        <div class="flex justify-between text-blue-500 border-b border-zinc-800 pb-4">
+                            <span class="text-xs font-bold">Envíos:</span>
+                            <span class="font-black">$${stats.envios.toLocaleString()}</span>
+                        </div>
+                        <div class="flex justify-between pt-2">
+                            <span class="text-sm font-black italic">VENTA TOTAL:</span>
+                            <span class="text-xl font-black italic text-orange-500">$${stats.neta.toLocaleString()}</span>
+                        </div>
+                    </div>
+                `;
+            }
+            lucide.createIcons();
+        }
+
+        function getStats() {
+            const pagados = state.pedidos.filter(p => p.pagoEstado === 'Pagado');
+            const bruta = pagados.reduce((a, b) => a + b.total, 0);
+            const propinas = pagados.reduce((a, b) => a + (b.propina || 0), 0);
+            const envios = pagados.reduce((a, b) => a + (b.costoEnvio || 0), 0);
+            
+            const porMetodo = { efectivo: 0, tarjeta: 0, transferencia: 0 };
+            pagados.forEach(p => {
+                const monto = p.totalFinal || (p.total + p.costoEnvio + (p.propina || 0));
+                if (p.metodoPago === 'Efectivo') porMetodo.efectivo += monto;
+                if (p.metodoPago === 'Tarjeta') porMetodo.tarjeta += monto;
+                if (p.metodoPago === 'QR') porMetodo.transferencia += monto;
+            });
+
+            const porCat = {};
+            pagados.forEach(p => p.items.forEach(i => porCat[i.name] = (porCat[i.name] || 0) + i.qty));
+
+            return { bruta, propinas, envios, neta: bruta + propinas + envios, porMetodo, porCat };
+        }
+
+        window.openPago = (id) => {
+            state.payingOrder = state.pedidos.find(p => p.id === id);
+            document.getElementById('modal-pago').classList.remove('hidden');
+            renderPago();
+        };
+
+        window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
+
+        function renderPago() {
+            const p = state.payingOrder;
+            const content = document.getElementById('pago-content');
+            content.innerHTML = `
+                <h3 class="text-2xl font-black italic uppercase mb-6 text-center">Cobrar Cuenta</h3>
+                <div class="bg-zinc-100 text-black p-6 rounded-3xl mb-6 ticket-font text-[11px] shadow-inner">
+                    <p class="text-center font-black mb-4">BRAZA BRAVA - TICKET</p>
+                    ${p.items.map(it => `<div class="flex justify-between"><span>${it.qty}x ${it.name}</span><span>$${(it.price*it.qty).toLocaleString()}</span></div>`).join('')}
+                    <div class="border-t border-dashed border-zinc-400 mt-4 pt-4 space-y-1">
+                        <div class="flex justify-between font-bold"><span>Total Base:</span><span>$${p.total.toLocaleString()}</span></div>
+                        ${p.costoEnvio ? `<div class="flex justify-between"><span>Envío:</span><span>$${p.costoEnvio.toLocaleString()}</span></div>` : ''}
+                        <div class="flex justify-between text-lg font-black pt-2"><span>A PAGAR:</span><span>$${(p.total + p.costoEnvio).toLocaleString()}</span></div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-3 gap-2 mb-6">
+                    <button onclick="handlePagoAction('Efectivo')" class="bg-zinc-800 py-4 rounded-2xl flex flex-col items-center gap-2 hover:bg-green-600 transition-all">
+                        <i data-lucide="banknote"></i><span class="text-[9px] font-black">EFECTIVO</span>
+                    </button>
+                    <button onclick="handlePagoAction('Tarjeta')" class="bg-zinc-800 py-4 rounded-2xl flex flex-col items-center gap-2 hover:bg-blue-600 transition-all">
+                        <i data-lucide="credit-card"></i><span class="text-[9px] font-black">TARJETA</span>
+                    </button>
+                    <button onclick="handlePagoAction('QR')" class="bg-zinc-800 py-4 rounded-2xl flex flex-col items-center gap-2 hover:bg-purple-600 transition-all">
+                        <i data-lucide="smartphone"></i><span class="text-[9px] font-black">QR / TRANSF</span>
+                    </button>
+                </div>
+                <div class="text-center">
+                    <p class="text-[10px] font-bold text-zinc-500 uppercase mb-2">¿Desea agregar propina?</p>
+                    <input type="number" id="propina-input" placeholder="$ Valor Propina" class="bg-zinc-800 w-full p-4 rounded-2xl text-center font-black outline-none border border-zinc-700">
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        window.handlePagoAction = (metodo) => {
+            const propina = Number(document.getElementById('propina-input').value) || 0;
+            window.procesarPago(metodo, propina);
+        };
+
+        window.openZReport = () => {
+            const stats = getStats();
+            document.getElementById('modal-cierre').classList.remove('hidden');
+            document.getElementById('cierre-content').innerHTML = `
+                <div class="text-center mb-8 border-b border-zinc-300 pb-6">
+                    <h3 class="text-xl font-black italic uppercase">REPORTE DE CIERRE</h3>
+                    <p class="text-[10px] text-zinc-500 font-bold uppercase mt-1">Braza Brava - ${new Date().toLocaleDateString()}</p>
+                </div>
+                <div class="space-y-6 mb-8">
+                    <div>
+                        <p class="text-[10px] font-black text-zinc-400 border-b border-zinc-100 pb-1 mb-3 uppercase">Efectivo en Caja</p>
+                        <div class="flex justify-between text-xs mb-1"><span>Base Inicial:</span><span>$${state.baseCaja.toLocaleString()}</span></div>
+                        <div class="flex justify-between text-xs mb-2"><span>Ventas Efectivo:</span><span>$${stats.porMetodo.efectivo.toLocaleString()}</span></div>
+                        <div class="bg-zinc-100 p-3 rounded-xl flex justify-between font-black"><span>EFECTIVO FINAL:</span><span>$${(state.baseCaja + stats.porMetodo.efectivo).toLocaleString()}</span></div>
+                    </div>
+                    <div>
+                        <p class="text-[10px] font-black text-zinc-400 border-b border-zinc-100 pb-1 mb-3 uppercase">Desglose de Turno</p>
+                        <div class="flex justify-between text-xs mb-1"><span>Ventas Brutas:</span><span>$${stats.bruta.toLocaleString()}</span></div>
+                        <div class="flex justify-between text-xs mb-1"><span>Total Propinas:</span><span class="text-green-600">$${stats.propinas.toLocaleString()}</span></div>
+                        <div class="flex justify-between text-xs"><span>Total Domicilios:</span><span class="text-blue-600">$${stats.envios.toLocaleString()}</span></div>
+                        <div class="text-right pt-4"><p class="text-lg font-black italic">TOTAL: $${stats.neta.toLocaleString()}</p></div>
+                    </div>
+                </div>
+                <div class="no-print space-y-3">
+                    <button onclick="window.print()" class="w-full bg-zinc-900 text-white py-4 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center gap-2">
+                        <i data-lucide="printer" size="16"></i> Imprimir Ticket
+                    </button>
+                    <button onclick="shareWhatsApp()" class="w-full bg-green-600 text-white py-4 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center gap-2">
+                        <i data-lucide="message-circle" size="16"></i> Enviar al Dueño
+                    </button>
+                </div>
+            `;
+            lucide.createIcons();
+        };
+
+        window.shareWhatsApp = () => {
+            const stats = getStats();
+            const text = `🔥 CIERRE BRAZA BRAVA - ${new Date().toLocaleDateString()}\n---\n💰 Efectivo: $${(state.baseCaja + stats.porMetodo.efectivo).toLocaleString()}\n💳 Tarjetas: $${stats.porMetodo.tarjeta.toLocaleString()}\n📱 Transf: $${stats.porMetodo.transferencia.toLocaleString()}\n---\n📈 TOTAL TURNO: $${stats.neta.toLocaleString()}`;
+            window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+        };
+
+        init();
+    </script>
+</body>
+</html>
