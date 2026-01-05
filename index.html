@@ -1,563 +1,695 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Braza Brava - Gestión Integral</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; -webkit-tap-highlight-color: transparent; }
-        .card { background: white; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; }
-        .btn-primary { background-color: #e11d48; color: white; }
-        .tab-active { border-bottom: 3px solid #e11d48; color: #e11d48; font-weight: 700; }
-        input, select { font-size: 16px !important; }
-        .bg-braza { background-color: #0f172a; }
-        .stock-alert { border-color: #f43f5e; background-color: #fff1f2; }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-    </style>
-</head>
-<body class="pb-24">
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  updateDoc, 
+  doc, 
+  deleteDoc, 
+  serverTimestamp,
+  getDocs
+} from 'firebase/firestore';
+import { 
+  Flame, 
+  ChefHat, 
+  PlusCircle, 
+  CheckCircle2, 
+  Clock, 
+  Trash2, 
+  ChevronRight,
+  ShoppingCart,
+  X,
+  CreditCard,
+  Receipt,
+  Smartphone,
+  Wallet,
+  Archive,
+  Send,
+  Tag,
+  Zap,
+  Split,
+  BellRing,
+  UtensilsCrossed,
+  Info,
+  Download,
+  Share2,
+  Coins,
+  MessageSquareText,
+  Plus,
+  MapPin,
+  Printer,
+  Bike,
+  Truck,
+  MessageCircle,
+  BarChart3,
+  CalendarDays,
+  ClipboardList
+} from 'lucide-react';
 
-    <!-- Header -->
-    <header class="bg-braza text-white p-4 shadow-xl sticky top-0 z-50">
-        <div class="max-w-4xl mx-auto flex justify-between items-center">
-            <h1 class="text-xl font-black text-rose-500 tracking-tighter italic">BRAZA BRAVA</h1>
-            <div class="text-right">
-                <p id="balance" class="text-lg font-bold text-emerald-400">$0</p>
-                <p class="text-[10px] uppercase text-slate-400 font-bold tracking-widest">Saldo en Caja</p>
+// Firebase Config
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'braza-brava-v1';
+
+const SOUND_NUEVO_PEDIDO = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
+const SOUND_PEDIDO_LISTO = 'https://assets.mixkit.co/active_storage/sfx/2357/2357-preview.mp3';
+
+const MENU_CATEGORIES = [
+  { id: 'hamburguesas', name: 'Hamburguesas', items: [{ name: 'Sencilla Brava', price: 15000 }, { name: 'Doble Braza', price: 22000 }, { name: 'Pollo Grill', price: 18000 }] },
+  { id: 'perros_vapor', name: 'Perros al Vapor', items: [{ name: 'Sencillo Vapor', price: 10000 }, { name: 'Suizo Vapor', price: 14000 }] },
+  { id: 'perros_carbon', name: 'Perros al Carbón', items: [{ name: 'Sencillo Carbón', price: 12000 }, { name: 'Especial Carbón', price: 16000 }] },
+  { id: 'salchipapas', name: 'Salchipapas', items: [{ name: 'Salchi Sencilla', price: 12000 }, { name: 'La Brava Mix', price: 28000 }] },
+  { id: 'asados', name: 'Asados', items: [{ name: 'Carne Asada', price: 25000 }, { name: 'Pechuga Carbón', price: 22000 }, { name: 'Churrasco', price: 35000 }] },
+  { id: 'bebidas', name: 'Bebidas', items: [{ name: 'Gaseosa 350ml', price: 4000 }, { name: 'Jugo Natural', price: 6000 }] }
+];
+
+const MESAS = Array.from({ length: 15 }, (_, i) => i + 1);
+
+export default function App() {
+  const [view, setView] = useState('cliente');
+  const [user, setUser] = useState(null);
+  const [pedidos, setPedidos] = useState([]);
+  const [serviceType, setServiceType] = useState('local');
+  const [selectedMesa, setSelectedMesa] = useState('1');
+  const [destinoData, setDestinoData] = useState({ direccion: '', costoEnvio: 0 });
+  const [cart, setCart] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showCartMobile, setShowCartMobile] = useState(false);
+  
+  const audioNuevoRef = useRef(null);
+  const audioListoRef = useRef(null);
+  const prevCount = useRef({ pendientes: 0, listos: 0 });
+
+  const [payingOrder, setPayingOrder] = useState(null);
+  const [stepPayment, setStepPayment] = useState('verify'); 
+  const [tipAmount, setTipAmount] = useState(0);
+  const [cashReceived, setCashReceived] = useState('');
+  const [isSplitPayment, setIsSplitPayment] = useState(false);
+  const [splitCashAmount, setSplitCashAmount] = useState(0);
+  const [showZReport, setShowZReport] = useState(false);
+  const [cajaBase, setCajaBase] = useState(100000); 
+  const [zComments, setZComments] = useState('');
+
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (error) { console.error(error); }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const path = collection(db, 'artifacts', appId, 'public', 'data', 'pedidos');
+    const unsubscribe = onSnapshot(path, (snapshot) => {
+      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      const sorted = docs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+      
+      const currentPendientes = docs.filter(p => p.estado === 'Pendiente').length;
+      const currentListos = docs.filter(p => p.estado === 'Listo' && p.pagoEstado === 'Pendiente').length;
+
+      if (currentPendientes > prevCount.current.pendientes) audioNuevoRef.current?.play().catch(() => {});
+      if (currentListos > prevCount.current.listos) audioListoRef.current?.play().catch(() => {});
+
+      prevCount.current = { pendientes: currentPendientes, listos: currentListos };
+      setPedidos(sorted);
+    }, (err) => console.error(err));
+    return () => unsubscribe();
+  }, [user]);
+
+  const addToCart = (product) => {
+    setCart(prev => [...prev, { ...product, qty: 1, notes: '', tempId: crypto.randomUUID() }]);
+  };
+
+  const removeFromCart = (tempId) => setCart(prev => prev.filter(item => item.tempId !== tempId));
+  const updateCartQty = (tempId, delta) => setCart(prev => prev.map(item => item.tempId === tempId ? { ...item, qty: Math.max(1, item.qty + delta) } : item));
+  const updateCartNotes = (tempId, notes) => setCart(prev => prev.map(item => item.tempId === tempId ? { ...item, notes } : item));
+  
+  const calculateTotal = () => cart.reduce((acc, item) => acc + (item.price * item.qty), 0);
+
+  const enviarPedidoCompleto = async () => {
+    if (cart.length === 0) return;
+    setIsSubmitting(true);
+    try {
+      const pedidosPath = collection(db, 'artifacts', appId, 'public', 'data', 'pedidos');
+      const pedidoExistente = (serviceType === 'local') ? pedidos.find(p => 
+        p.pagoEstado === 'Pendiente' && p.tipo === 'local' && p.mesa === selectedMesa
+      ) : null;
+
+      if (pedidoExistente) {
+        const nuevosItems = [...pedidoExistente.items, ...cart];
+        const nuevoTotal = nuevosItems.reduce((acc, item) => acc + (item.price * item.qty), 0);
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pedidos', pedidoExistente.id), {
+          items: nuevosItems,
+          total: nuevoTotal,
+          estado: 'Pendiente'
+        });
+      } else {
+        await addDoc(pedidosPath, {
+          items: cart,
+          tipo: serviceType,
+          mesa: serviceType === 'local' ? selectedMesa : null,
+          destino: serviceType !== 'local' ? destinoData.direccion : null,
+          costoEnvio: serviceType === 'domicilio' ? (Number(destinoData.costoEnvio) || 0) : 0,
+          total: calculateTotal(),
+          estado: 'Pendiente',
+          pagoEstado: 'Pendiente',
+          timestamp: serverTimestamp(),
+        });
+      }
+
+      setCart([]);
+      setDestinoData({ direccion: '', costoEnvio: 0 });
+      setShowCartMobile(false);
+    } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
+  };
+
+  const procesarPago = async (id, metodo, splitData = null) => {
+    const finalTotal = payingOrder.total + tipAmount + (payingOrder.costoEnvio || 0);
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pedidos', id), { 
+      pagoEstado: 'Pagado',
+      metodoPago: metodo,
+      propina: tipAmount,
+      totalFinal: finalTotal,
+      fechaPago: serverTimestamp(),
+      pagoCombinado: splitData
+    });
+    setPayingOrder(null);
+    setStepPayment('verify');
+    setCashReceived('');
+    setTipAmount(0);
+    setIsSplitPayment(false);
+  };
+
+  const formatPrice = (p) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(p);
+
+  const getDetalleCierre = () => {
+    const pagados = pedidos.filter(p => p.pagoEstado === 'Pagado');
+    
+    const efectivo = pagados.reduce((acc, p) => {
+      if (p.metodoPago === 'Efectivo') return acc + (p.totalFinal || p.total);
+      if (p.metodoPago === 'Combinado') return acc + (p.pagoCombinado?.efectivo || 0);
+      return acc;
+    }, 0);
+
+    const tarjeta = pagados.reduce((acc, p) => {
+      if (p.metodoPago === 'Tarjeta') return acc + (p.totalFinal || p.total);
+      if (p.metodoPago === 'Combinado' && p.pagoCombinado?.otro === 'Tarjeta') return acc + ((p.totalFinal || p.total) - p.pagoCombinado.efectivo);
+      return acc;
+    }, 0);
+
+    const transferencia = pagados.reduce((acc, p) => {
+      if (p.metodoPago === 'QR / Transferencia') return acc + (p.totalFinal || p.total);
+      if (p.metodoPago === 'Combinado' && p.pagoCombinado?.otro === 'Transferencia') return acc + ((p.totalFinal || p.total) - p.pagoCombinado.efectivo);
+      return acc;
+    }, 0);
+
+    const propinas = pagados.reduce((acc, p) => acc + (p.propina || 0), 0);
+    const envios = pagados.reduce((acc, p) => acc + (p.costoEnvio || 0), 0);
+    const totalVentasBrutas = pagados.reduce((acc, p) => acc + p.total, 0);
+
+    const categoriasContador = {};
+    pagados.forEach(p => {
+      p.items.forEach(item => {
+        const cat = MENU_CATEGORIES.find(c => c.items.some(i => i.name === item.name))?.name || 'Otros';
+        categoriasContador[cat] = (categoriasContador[cat] || 0) + item.qty;
+      });
+    });
+
+    return { efectivo, tarjeta, transferencia, propinas, envios, totalVentasBrutas, totalVentasNetas: totalVentasBrutas + propinas + envios, categoriasContador };
+  };
+
+  const enviarCierreWhatsApp = () => {
+    const det = getDetalleCierre();
+    const texto = `🔥 *CIERRE DETALLADO - BRAZA BRAVA* 🔥%0A` +
+      `📅 Fecha: ${new Date().toLocaleDateString()}%0A` +
+      `--------------------------------%0A` +
+      `💰 *RESUMEN DE CAJA*%0A` +
+      `Base Inicial: ${formatPrice(cajaBase)}%0A` +
+      `Ventas Efectivo: ${formatPrice(det.efectivo)}%0A` +
+      `--------------------------------%0A` +
+      `💵 *TOTAL EN CAJA (Base + Efec): ${formatPrice(cajaBase + det.efectivo)}*%0A` +
+      `--------------------------------%0A` +
+      `💳 *OTROS INGRESOS*%0A` +
+      `Tarjetas: ${formatPrice(det.tarjeta)}%0A` +
+      `Transferencias: ${formatPrice(det.transferencia)}%0A` +
+      `--------------------------------%0A` +
+      `✨ *ADICIONALES*%0A` +
+      `Propinas: ${formatPrice(det.propinas)}%0A` +
+      `Domicilios: ${formatPrice(det.envios)}%0A` +
+      `--------------------------------%0A` +
+      `📊 *VENTAS POR CATEGORÍA*%0A` +
+      Object.entries(det.categoriasContador).map(([name, qty]) => `${name}: ${qty} unidades`).join('%0A') + `%0A` +
+      `--------------------------------%0A` +
+      `📈 *VENTA TOTAL DEL TURNO: ${formatPrice(det.totalVentasNetas)}*%0A` +
+      `--------------------------------%0A` +
+      `📝 *COMENTARIOS:* ${zComments || 'Sin novedades'}`;
+    
+    window.open(`https://wa.me/?text=${texto}`, '_blank');
+  };
+
+  const renderCliente = () => {
+    const mesaTienePedido = serviceType === 'local' && pedidos.some(p => p.pagoEstado === 'Pendiente' && p.tipo === 'local' && p.mesa === selectedMesa);
+
+    return (
+      <div className="max-w-4xl mx-auto px-4 pb-40 flex flex-col md:flex-row gap-8">
+        <div className="flex-1">
+          <header className="flex items-center justify-between my-6 bg-orange-600 p-6 rounded-3xl shadow-xl">
+            <h1 className="text-2xl font-black italic flex items-center gap-2"><Flame className="fill-white" /> BRAZA BRAVA</h1>
+            <div className="md:hidden relative" onClick={() => setShowCartMobile(!showCartMobile)}>
+              <ShoppingCart size={24} />
+              {cart.length > 0 && <span className="absolute -top-2 -right-2 bg-white text-orange-600 text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-bold">{cart.length}</span>}
             </div>
-        </div>
-    </header>
+          </header>
 
-    <!-- Navegación Principal -->
-    <nav class="flex justify-around bg-white border-b sticky top-[68px] z-40 shadow-sm">
-        <button onclick="switchTab('compras')" id="tab-compras" class="py-3 px-4 text-xs font-bold uppercase tracking-wider tab-active transition-all">Compras</button>
-        <button onclick="switchTab('inventario')" id="tab-inventario" class="py-3 px-4 text-xs font-bold uppercase tracking-wider text-slate-400 transition-all">Inventario</button>
-        <button onclick="switchTab('reporte')" id="tab-reporte" class="py-3 px-4 text-xs font-bold uppercase tracking-wider text-slate-400 transition-all">Finanzas</button>
-    </nav>
+          <div className="bg-zinc-900 p-4 rounded-3xl mb-6 border border-zinc-800 space-y-4">
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={() => setServiceType('local')} className={`py-3 rounded-2xl font-black text-[10px] ${serviceType === 'local' ? 'bg-orange-500 text-white shadow-lg' : 'bg-zinc-800 text-zinc-500'}`}>LOCAL</button>
+              <button onClick={() => setServiceType('llevar')} className={`py-3 rounded-2xl font-black text-[10px] ${serviceType === 'llevar' ? 'bg-orange-500 text-white shadow-lg' : 'bg-zinc-800 text-zinc-500'}`}>LLEVAR</button>
+              <button onClick={() => setServiceType('domicilio')} className={`py-3 rounded-2xl font-black text-[10px] ${serviceType === 'domicilio' ? 'bg-orange-500 text-white shadow-lg' : 'bg-zinc-800 text-zinc-500'}`}>DOMICILIO</button>
+            </div>
+            
+            {serviceType === 'local' ? (
+              <div className="flex gap-2 overflow-x-auto py-2 scrollbar-hide">
+                {MESAS.map(m => (
+                  <button key={m} onClick={() => setSelectedMesa(m.toString())} className={`min-w-[44px] h-[44px] rounded-xl font-black text-xs transition-all relative ${selectedMesa === m.toString() ? 'bg-white text-orange-600' : 'bg-zinc-800 text-zinc-600'}`}>
+                    {m} {pedidos.some(p => p.pagoEstado === 'Pendiente' && p.tipo === 'local' && p.mesa === m.toString()) && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-3 bg-zinc-800/50 p-4 rounded-2xl border border-zinc-700">
+                  <MapPin size={18} className="text-orange-500" />
+                  <input type="text" placeholder="Dirección o nombre del cliente" className="bg-transparent text-sm outline-none flex-1 text-white" value={destinoData.direccion} onChange={(e) => setDestinoData({...destinoData, direccion: e.target.value})} />
+                </div>
+                {serviceType === 'domicilio' && (
+                  <div className="flex items-center gap-3 bg-zinc-800/50 p-4 rounded-2xl border border-zinc-700">
+                    <Bike size={18} className="text-orange-500" />
+                    <input type="number" placeholder="Costo de Envío (Ej: 3000)" className="bg-transparent text-sm outline-none flex-1 text-white" value={destinoData.costoEnvio} onChange={(e) => setDestinoData({...destinoData, costoEnvio: e.target.value})} />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
-    <main class="max-w-4xl mx-auto px-4 py-6">
-
-        <!-- VISTA 1: COMPRAS Y LISTA -->
-        <div id="view-compras" class="space-y-6">
-            <section class="space-y-4">
-                <div class="flex items-center gap-2">
-                    <i class="fas fa-clipboard-list text-rose-500"></i>
-                    <h2 class="font-bold text-slate-800 uppercase text-sm">Lista de Faltantes</h2>
+          <div className="space-y-8">
+            {MENU_CATEGORIES.map(cat => (
+              <div key={cat.id}>
+                <h3 className="font-black text-[10px] uppercase tracking-widest mb-3 ml-2 flex items-center gap-2 text-orange-500"><UtensilsCrossed size={14}/> {cat.name}</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {cat.items.map(item => (
+                    <button key={item.name} onClick={() => addToCart(item)} className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex flex-col items-start active:scale-95 transition-all text-left">
+                      <span className="font-bold text-xs text-zinc-100 mb-1">{item.name}</span>
+                      <span className="font-black text-xs text-orange-500">{formatPrice(item.price)}</span>
+                    </button>
+                  ))}
                 </div>
-                <div class="card p-4 space-y-4">
-                    <div class="grid grid-cols-1 gap-3">
-                        <input type="text" id="p-name" placeholder="¿Qué falta comprar?" class="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:border-rose-500">
-                        <div class="flex gap-2">
-                            <input type="number" id="p-qty" placeholder="Cant." class="w-1/3 p-3 bg-slate-50 border rounded-xl text-center font-bold">
-                            <select id="p-unit" class="w-2/3 p-3 bg-slate-50 border rounded-xl font-bold">
-                                <option value="und">Unidades</option>
-                                <option value="gr">Gramos</option>
-                                <option value="kg">Kilos</option>
-                                <option value="lb">Libras</option>
-                            </select>
-                        </div>
-                    </div>
-                    <button onclick="addPending()" class="w-full bg-braza text-white py-3 rounded-xl font-bold text-sm shadow-lg active:scale-95 transition">Agregar a la Lista</button>
-                    <div id="pending-list" class="space-y-2 mt-2"></div>
-                </div>
-            </section>
-
-            <section class="space-y-4">
-                <div class="flex items-center gap-2">
-                    <i class="fas fa-receipt text-rose-500"></i>
-                    <h2 class="font-bold text-slate-800 uppercase text-sm">Registrar Pago / Gasto</h2>
-                </div>
-                <div class="card p-4 space-y-3">
-                    <input type="text" id="buy-name" placeholder="Producto comprado" class="w-full p-3 bg-slate-50 border rounded-xl outline-none">
-                    <div class="grid grid-cols-2 gap-2">
-                        <select id="buy-cat" class="p-3 bg-slate-50 border rounded-xl text-sm font-bold">
-                            <option value="Carnes">🥩 Carnes</option>
-                            <option value="Vegetales">🥦 Verduras</option>
-                            <option value="Embutidos">🌭 Embutidos</option>
-                            <option value="Bebidas">🥤 Bebidas</option>
-                            <option value="Insumos">🔥 Insumos</option>
-                            <option value="Papas/Pan">🍟 Papas y Pan</option>
-                            <option value="Otros">📦 Otros</option>
-                        </select>
-                        <div id="buy-total-display" class="p-3 bg-rose-50 text-rose-600 rounded-xl font-black text-center text-sm border border-rose-100 flex items-center justify-center">$0</div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-2">
-                        <input type="number" id="buy-qty" placeholder="Cant." step="0.01" class="p-3 bg-slate-50 border rounded-xl text-center">
-                        <input type="number" id="buy-price" placeholder="Precio Un." step="0.01" class="p-3 bg-slate-50 border rounded-xl text-center">
-                    </div>
-                    <button onclick="registerPurchase()" class="w-full btn-primary py-3 rounded-xl font-bold shadow-md active:scale-95 transition">CONFIRMAR COMPRA</button>
-                </div>
-            </section>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <!-- VISTA 2: INVENTARIO MAESTRO -->
-        <div id="view-inventario" class="hidden space-y-6">
-            <div class="flex flex-col gap-3">
-                <div class="flex items-center justify-between">
-                    <h2 class="font-bold text-slate-800 uppercase text-sm">Control de Stock</h2>
-                    <div class="flex gap-2">
-                        <button onclick="sendInventoryToWhatsApp()" class="bg-emerald-500 text-white font-bold text-[10px] px-3 py-1.5 rounded-full uppercase shadow-sm flex items-center gap-1">
-                            <i class="fab fa-whatsapp"></i> Reporte Stock
-                        </button>
-                        <button onclick="toggleAddStock()" class="text-rose-500 font-bold text-[10px] border border-rose-500 px-3 py-1.5 rounded-full uppercase">+ Nuevo</button>
+        <div className={`${showCartMobile ? 'fixed inset-0 z-[110] bg-black/95 p-4 flex items-center justify-center' : 'hidden'} md:block md:relative md:w-96 md:pt-6`}>
+          <div className="bg-zinc-950 border border-zinc-800 rounded-[40px] p-6 w-full max-w-sm h-full max-h-[85vh] flex flex-col shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h4 className="font-black italic text-xl uppercase tracking-tighter">{mesaTienePedido ? 'Adición' : 'Nueva Orden'}</h4>
+              <button className="md:hidden bg-zinc-900 p-2 rounded-full" onClick={() => setShowCartMobile(false)}><X size={20}/></button>
+            </div>
+            
+            <div className="flex-grow overflow-y-auto space-y-4 scrollbar-hide">
+              {cart.map((item) => (
+                <div key={item.tempId} className="bg-zinc-900/80 p-4 rounded-3xl border border-zinc-800">
+                  <div className="flex justify-between font-bold text-xs mb-3">
+                    <span>{item.name}</span>
+                    <button onClick={() => removeFromCart(item.tempId)} className="text-zinc-500 hover:text-red-500"><Trash2 size={16}/></button>
+                  </div>
+                  <div className="flex items-center gap-2 mb-3 bg-black/30 p-2 rounded-xl border border-zinc-800/50">
+                    <MessageSquareText size={14} className="text-zinc-500" />
+                    <input type="text" placeholder="Notas..." className="bg-transparent text-[11px] outline-none flex-1 text-zinc-300" value={item.notes} onChange={(e) => updateCartNotes(item.tempId, e.target.value)} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 bg-black/50 px-3 py-1 rounded-2xl border border-zinc-800">
+                      <button onClick={() => updateCartQty(item.tempId, -1)} className="text-orange-500 font-black">-</button>
+                      <span className="text-xs font-black">{item.qty}</span>
+                      <button onClick={() => updateCartQty(item.tempId, 1)} className="text-orange-500 font-black">+</button>
                     </div>
+                    <span className="text-zinc-400 font-bold text-xs">{formatPrice(item.price * item.qty)}</span>
+                  </div>
                 </div>
-                <button onclick="toggleSalesModal()" class="w-full bg-slate-800 text-white font-bold text-xs py-3 rounded-xl uppercase shadow-sm flex items-center justify-center gap-2">
-                    <i class="fas fa-minus-circle"></i> Descontar Consumo del Día
+              ))}
+            </div>
+
+            <div className="mt-6 pt-6 border-t border-zinc-800">
+              <div className="flex justify-between items-end mb-6">
+                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Subtotal</span>
+                <span className="text-3xl font-black text-white italic">{formatPrice(calculateTotal())}</span>
+              </div>
+              <button 
+                disabled={cart.length === 0 || isSubmitting || (serviceType !== 'local' && !destinoData.direccion)} 
+                onClick={enviarPedidoCompleto} 
+                className="w-full py-5 rounded-3xl font-black text-xs uppercase bg-green-600 disabled:opacity-20 active:scale-95 transition-all"
+              >
+                {isSubmitting ? 'ENVIANDO...' : 'ENVIAR A COCINA 🔥'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCocina = () => (
+    <div className="max-w-7xl mx-auto px-4 pb-20 pt-4 text-white">
+      <h1 className="text-3xl font-black italic mb-8 border-l-4 border-orange-600 pl-4 uppercase tracking-tighter">Cocina</h1>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {pedidos.filter(p => p.estado !== 'Listo').map((pedido) => (
+          <div key={pedido.id} className="bg-zinc-900 rounded-[40px] p-6 border-t-8 border-orange-600 flex flex-col shadow-2xl">
+            <div className="mb-6">
+              <span className="text-[10px] font-black px-2 py-1 rounded uppercase bg-white text-black">
+                {pedido.tipo === 'local' ? `Mesa ${pedido.mesa}` : pedido.tipo.toUpperCase()}
+              </span>
+              {pedido.destino && <p className="text-[10px] text-orange-400 font-bold uppercase mt-2 flex items-center gap-1"><MapPin size={10} /> {pedido.destino}</p>}
+            </div>
+            <div className="flex-grow space-y-4 mb-8">
+              {pedido.items.map((it, i) => (
+                <div key={i} className="flex gap-3 border-b border-zinc-800 pb-3 last:border-0">
+                  <span className="bg-orange-600 text-white text-xs font-black px-2 py-1 rounded-lg h-fit">{it.qty}</span>
+                  <div>
+                    <span className="text-sm font-bold">{it.name}</span>
+                    {it.notes && <p className="text-[11px] text-orange-400 italic"> - {it.notes}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button 
+              onClick={() => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pedidos', pedido.id), { estado: pedido.estado === 'Pendiente' ? 'Preparando' : 'Listo' })} 
+              className={`w-full py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest ${pedido.estado === 'Pendiente' ? 'bg-blue-600' : 'bg-green-600'}`}
+            >
+              {pedido.estado === 'Pendiente' ? 'COMENZAR' : 'LISTO'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderCaja = () => {
+    const porCobrar = pedidos.filter(p => p.pagoEstado === 'Pendiente');
+    const detalle = getDetalleCierre();
+
+    return (
+      <div className="max-w-5xl mx-auto px-4 pb-20 pt-4">
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
+          <div>
+            <h1 className="text-3xl font-black italic border-l-4 border-green-600 pl-4 uppercase tracking-tighter text-white">Caja Central</h1>
+            <p className="text-[10px] text-zinc-500 uppercase mt-1 font-black">Turno actual en curso</p>
+          </div>
+          <button onClick={() => setShowZReport(true)} className="bg-white text-black px-8 py-4 rounded-3xl text-xs font-black uppercase flex items-center gap-2 shadow-2xl transition-transform active:scale-95">
+            <BarChart3 size={18} /> GENERAR CIERRE DETALLADO
+          </button>
+        </header>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-4">
+            <h3 className="text-xs font-black uppercase text-zinc-500 mb-4 flex items-center gap-2"><ClipboardList size={16}/> Cuentas Pendientes</h3>
+            {porCobrar.length === 0 ? (
+              <div className="bg-zinc-900/50 p-10 rounded-[32px] border border-dashed border-zinc-800 text-center">
+                <p className="text-xs font-bold text-zinc-600 italic">No hay cuentas por cobrar en este momento.</p>
+              </div>
+            ) : porCobrar.map(p => (
+              <div key={p.id} className="bg-zinc-900 p-6 rounded-[32px] flex justify-between items-center border border-zinc-800 hover:border-zinc-700 transition-colors">
+                <div className="flex items-center gap-4">
+                  <div className={`p-4 rounded-2xl ${p.estado === 'Listo' ? 'bg-green-600 text-white shadow-lg' : 'bg-zinc-800 text-zinc-500'}`}>
+                    {p.estado === 'Listo' ? <CheckCircle2 size={20}/> : <Clock size={20}/>}
+                  </div>
+                  <div>
+                    <h4 className="font-black text-base uppercase italic text-white">{p.tipo === 'local' ? `Mesa ${p.mesa}` : p.tipo.toUpperCase()}</h4>
+                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Items: {p.items.length}</span>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <span className="text-xl font-black italic text-white">{formatPrice(p.total + (p.costoEnvio || 0))}</span>
+                  <button onClick={() => { setPayingOrder(p); setStepPayment('verify'); }} className="bg-green-600 px-6 py-3 rounded-2xl font-black text-[10px] uppercase shadow-lg text-white active:scale-95 transition-all">COBRAR</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-6">
+            <h3 className="text-xs font-black uppercase text-zinc-500 mb-4 flex items-center gap-2"><BarChart3 size={16}/> Resumen Parcial</h3>
+            <div className="bg-zinc-900 p-6 rounded-[40px] border border-zinc-800 space-y-6">
+              <div className="space-y-2">
+                <span className="text-[10px] font-black text-zinc-500 uppercase">Ventas Netas</span>
+                <p className="text-3xl font-black italic">{formatPrice(detalle.totalVentasBrutas)}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4 border-t border-zinc-800 pt-6">
+                <div>
+                  <span className="text-[9px] font-bold text-zinc-500 uppercase">Propinas</span>
+                  <p className="font-black text-green-500">{formatPrice(detalle.propinas)}</p>
+                </div>
+                <div>
+                  <span className="text-[9px] font-bold text-zinc-500 uppercase">Domicilios</span>
+                  <p className="font-black text-blue-500">{formatPrice(detalle.envios)}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Pago */}
+        {payingOrder && (
+          <div className="fixed inset-0 z-[150] bg-black/95 flex items-center justify-center p-4 backdrop-blur-sm overflow-y-auto">
+            <div className="bg-zinc-900 border border-zinc-800 w-full max-w-lg rounded-[48px] p-8 shadow-2xl relative text-white">
+              <button onClick={() => setPayingOrder(null)} className="absolute top-6 right-6 bg-zinc-800 p-2 rounded-full hover:bg-zinc-700 transition-colors"><X size={20}/></button>
+              
+              {stepPayment === 'verify' && (
+                <div className="animate-in slide-in-from-bottom duration-300">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-orange-500 mb-6 flex items-center gap-2"><Receipt size={16}/> Detalle de Cuenta</h3>
+                  
+                  <div className="bg-zinc-100 text-black p-8 rounded-3xl mb-6 font-mono text-xs shadow-inner">
+                    <div className="text-center mb-4 pb-4 border-b border-dashed border-zinc-300">
+                      <p className="font-black text-lg">BRAZA BRAVA</p>
+                      <p className="font-bold">{payingOrder.tipo === 'local' ? `MESA ${payingOrder.mesa}` : payingOrder.tipo.toUpperCase()}</p>
+                    </div>
+                    {payingOrder.items.map((it, i) => (
+                      <div key={i} className="flex justify-between mb-1">
+                        <span>{it.qty}x {it.name}</span>
+                        <span>{formatPrice(it.price * it.qty)}</span>
+                      </div>
+                    ))}
+                    <div className="mt-4 pt-4 border-t border-dashed border-zinc-300 space-y-1">
+                      <div className="flex justify-between font-bold"><span>Subtotal:</span><span>{formatPrice(payingOrder.total)}</span></div>
+                      {payingOrder.costoEnvio > 0 && <div className="flex justify-between"><span>Domicilio:</span><span>{formatPrice(payingOrder.costoEnvio)}</span></div>}
+                      {tipAmount > 0 && <div className="flex justify-between text-green-700 font-bold italic"><span>Propina:</span><span>+ {formatPrice(tipAmount)}</span></div>}
+                      <div className="flex justify-between text-xl font-black pt-4 border-t border-zinc-200 mt-2"><span>TOTAL:</span><span>{formatPrice(payingOrder.total + tipAmount + (payingOrder.costoEnvio || 0))}</span></div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 mb-6">
+                    <div className="col-span-2 text-[10px] font-black uppercase text-zinc-500 mb-1 ml-2">¿Propina Voluntaria?</div>
+                    <button onClick={() => setTipAmount(payingOrder.total * 0.1)} className={`py-4 rounded-2xl text-[10px] font-black border transition-colors ${tipAmount === payingOrder.total * 0.1 ? 'bg-orange-600 border-orange-600' : 'border-zinc-800 bg-zinc-800 text-zinc-500'}`}>10% ({formatPrice(payingOrder.total * 0.1)})</button>
+                    <input type="number" placeholder="Otro valor..." className="bg-zinc-800 rounded-2xl p-4 text-[10px] font-black outline-none border border-zinc-800 focus:border-orange-500 transition-colors" onChange={(e) => setTipAmount(Number(e.target.value))}/>
+                  </div>
+
+                  <button onClick={() => setStepPayment('method')} className="w-full bg-green-600 py-5 rounded-3xl font-black text-xs uppercase shadow-lg active:scale-95 transition-all">ELEGIR MÉTODO DE PAGO <ChevronRight className="inline ml-1" size={16}/></button>
+                </div>
+              )}
+
+              {stepPayment === 'method' && (
+                <div className="animate-in slide-in-from-right duration-300">
+                  <h3 className="text-2xl font-black italic uppercase mb-8 text-center">Método de Pago</h3>
+                  <div className="grid grid-cols-2 gap-3 mb-6">
+                    <button onClick={() => setStepPayment('cash')} className="flex flex-col items-center gap-3 bg-zinc-800 p-6 rounded-3xl hover:bg-orange-600 transition-all border border-zinc-700 hover:border-orange-400 group">
+                      <Wallet size={24} className="group-hover:scale-110 transition-transform"/>
+                      <span className="text-[10px] font-black">EFECTIVO</span>
+                    </button>
+                    <button onClick={() => procesarPago(payingOrder.id, 'Tarjeta')} className="flex flex-col items-center gap-3 bg-zinc-800 p-6 rounded-3xl hover:bg-blue-600 transition-all border border-zinc-700 hover:border-blue-400 group">
+                      <CreditCard size={24} className="group-hover:scale-110 transition-transform"/>
+                      <span className="text-[10px] font-black">TARJETA</span>
+                    </button>
+                    <button onClick={() => procesarPago(payingOrder.id, 'QR / Transferencia')} className="flex flex-col items-center gap-3 bg-zinc-800 p-6 rounded-3xl hover:bg-purple-600 transition-all border border-zinc-700 hover:border-purple-400 group">
+                      <Smartphone size={24} className="group-hover:scale-110 transition-transform"/>
+                      <span className="text-[10px] font-black">QR / TRANSF</span>
+                    </button>
+                    <button onClick={() => setIsSplitPayment(!isSplitPayment)} className={`flex flex-col items-center gap-3 p-6 rounded-3xl transition-all border ${isSplitPayment ? 'bg-white text-black border-white shadow-xl' : 'bg-zinc-800 text-white border-zinc-700 hover:border-zinc-500'}`}>
+                      <Split size={24} />
+                      <span className="text-[10px] font-black">COMBINADO</span>
+                    </button>
+                  </div>
+
+                  {isSplitPayment && (
+                    <div className="bg-white/5 p-6 rounded-3xl space-y-4 border border-zinc-700 animate-in zoom-in duration-200">
+                      <p className="text-[10px] font-black uppercase text-orange-500 text-center tracking-widest">Configurar Pago Combinado</p>
+                      <div>
+                        <span className="text-[9px] font-bold text-zinc-500 uppercase ml-2">¿Cuánto pagan en Efectivo?</span>
+                        <input type="number" className="bg-zinc-800 w-full p-4 rounded-2xl text-xl font-black mt-1 outline-none border border-zinc-700" placeholder="0" value={splitCashAmount} onChange={(e) => setSplitCashAmount(Number(e.target.value))}/>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => procesarPago(payingOrder.id, 'Combinado', { efectivo: splitCashAmount, otro: 'Tarjeta' })} className="bg-blue-600 p-4 rounded-xl text-[9px] font-black uppercase shadow-lg">Resto Tarjeta</button>
+                        <button onClick={() => procesarPago(payingOrder.id, 'Combinado', { efectivo: splitCashAmount, otro: 'Transferencia' })} className="bg-purple-600 p-4 rounded-xl text-[9px] font-black uppercase shadow-lg">Resto Transf</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {stepPayment === 'cash' && (
+                <div className="text-center animate-in slide-in-from-right">
+                  <div className="bg-black/40 p-10 rounded-3xl border border-zinc-800 mb-8 shadow-inner">
+                    <span className="text-[10px] font-black uppercase opacity-50 block mb-2 tracking-widest">Efectivo Recibido</span>
+                    <input type="number" autoFocus className="bg-transparent text-6xl font-black text-white outline-none w-full text-center placeholder-zinc-800" placeholder="0" onChange={(e) => setCashReceived(e.target.value)} />
+                  </div>
+                  <div className="mb-10">
+                    <span className="text-[10px] uppercase font-black text-orange-500 block mb-1 tracking-widest italic">Cambio a entregar</span>
+                    <h3 className="text-5xl font-black text-white italic">{formatPrice(Math.max(0, Number(cashReceived) - (payingOrder.total + tipAmount + (payingOrder.costoEnvio || 0))))}</h3>
+                  </div>
+                  <button onClick={() => procesarPago(payingOrder.id, 'Efectivo')} className="w-full bg-green-600 py-6 rounded-3xl font-black text-sm uppercase shadow-2xl active:scale-95 transition-all">CONFIRMAR PAGO RECIBIDO 🔥</button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Cierre de Caja Detallado */}
+        {showZReport && (
+          <div className="fixed inset-0 z-[200] bg-black/98 flex items-center justify-center p-4 backdrop-blur-md overflow-y-auto">
+            <div className="bg-zinc-50 text-black w-full max-w-lg rounded-[48px] p-8 font-mono shadow-2xl relative my-8">
+              <button onClick={() => setShowZReport(false)} className="absolute top-6 right-6 bg-zinc-200 p-2 rounded-full hover:bg-zinc-300 transition-colors"><X size={18}/></button>
+              
+              <div className="text-center mb-8 border-b border-zinc-300 pb-6">
+                <h3 className="text-2xl font-black italic uppercase tracking-tighter">CIERRE DETALLADO</h3>
+                <div className="flex items-center justify-center gap-2 mt-1 text-zinc-500 font-bold text-[10px]">
+                  <CalendarDays size={12}/> {new Date().toLocaleDateString()} | <Clock size={12}/> {new Date().toLocaleTimeString()}
+                </div>
+              </div>
+
+              <div className="space-y-6 mb-8 overflow-y-auto max-h-[60vh] pr-2 scrollbar-hide">
+                {/* Ingresos Base y Efectivo */}
+                <div className="bg-white p-6 rounded-3xl border border-zinc-200 shadow-sm">
+                  <span className="text-[10px] font-black uppercase text-zinc-400 block mb-4 border-b border-zinc-100 pb-2">Control de Efectivo</span>
+                  <div className="flex justify-between items-center mb-4">
+                    <span className="text-xs font-bold">Base Caja:</span>
+                    <div className="flex items-center gap-2 bg-zinc-100 px-3 py-1 rounded-xl">
+                      <span className="font-black">$</span>
+                      <input type="number" className="font-black outline-none w-20 bg-transparent text-right" value={cajaBase} onChange={(e) => setCajaBase(Number(e.target.value))}/>
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center mb-4">
+                    <span className="text-xs font-bold">Ventas Efectivo:</span>
+                    <span className="font-black text-zinc-700">{formatPrice(detalle.efectivo)}</span>
+                  </div>
+                  <div className="bg-zinc-900 text-white p-4 rounded-2xl flex justify-between items-center mt-2">
+                    <span className="text-[10px] font-black uppercase">Efectivo Total en Caja:</span>
+                    <span className="text-lg font-black italic">{formatPrice(cajaBase + detalle.efectivo)}</span>
+                  </div>
+                </div>
+
+                {/* Otros Medios */}
+                <div className="bg-white p-6 rounded-3xl border border-zinc-200 shadow-sm">
+                  <span className="text-[10px] font-black uppercase text-zinc-400 block mb-4 border-b border-zinc-100 pb-2">Otros Medios de Pago</span>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-bold text-blue-600">Tarjetas:</span>
+                    <span className="font-black">{formatPrice(detalle.tarjeta)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-purple-600">Transferencias:</span>
+                    <span className="font-black">{formatPrice(detalle.transferencia)}</span>
+                  </div>
+                </div>
+
+                {/* Desglose Ventas Categoría */}
+                <div className="bg-white p-6 rounded-3xl border border-zinc-200 shadow-sm">
+                  <span className="text-[10px] font-black uppercase text-zinc-400 block mb-4 border-b border-zinc-100 pb-2">Ventas por Categoría</span>
+                  <div className="space-y-2">
+                    {Object.entries(detalle.categoriasContador).map(([cat, qty]) => (
+                      <div key={cat} className="flex justify-between text-xs font-bold">
+                        <span className="text-zinc-600">{cat}:</span>
+                        <span className="font-black">{qty} unds</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Resumen Adicionales */}
+                <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100">
+                  <span className="text-[10px] font-black uppercase text-orange-400 block mb-4 border-b border-orange-200 pb-2 text-center">Resumen del Turno</span>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs"><span>Venta Bruta:</span><span className="font-bold">{formatPrice(detalle.totalVentasBrutas)}</span></div>
+                    <div className="flex justify-between text-xs"><span>Propinas:</span><span className="font-bold text-green-600">+ {formatPrice(detalle.propinas)}</span></div>
+                    <div className="flex justify-between text-xs"><span>Envíos:</span><span className="font-bold text-blue-600">+ {formatPrice(detalle.envios)}</span></div>
+                    <div className="flex justify-between text-base font-black border-t border-orange-200 pt-3 mt-2">
+                      <span>VENTA TOTAL:</span>
+                      <span className="italic">{formatPrice(detalle.totalVentasNetas)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-3xl border border-zinc-200 shadow-sm">
+                  <span className="text-[10px] font-black uppercase text-zinc-400 block mb-2 flex items-center gap-2"><MessageSquareText size={14}/> Novedades del Turno</span>
+                  <textarea className="w-full bg-zinc-50 p-3 rounded-xl text-[11px] outline-none h-24 resize-none border border-zinc-100 font-sans" placeholder="Describe cualquier novedad relevante..." value={zComments} onChange={(e) => setZComments(e.target.value)}></textarea>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <button onClick={enviarCierreWhatsApp} className="w-full bg-green-600 text-white py-5 rounded-3xl font-black text-xs uppercase flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all">
+                  <MessageCircle size={20}/> ENVIAR REPORTE A WHATSAPP
                 </button>
+                <button onClick={() => window.print()} className="w-full bg-zinc-900 text-white py-5 rounded-3xl font-black text-xs uppercase flex items-center justify-center gap-3 shadow-lg hover:bg-black transition-colors">
+                  <Printer size={20}/> IMPRIMIR TICKET DE CIERRE
+                </button>
+              </div>
             </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
-            <!-- Filtros -->
-            <div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-                <button onclick="filterInventory('All')" class="cat-pill bg-slate-800 text-white px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap">Todos</button>
-                <button onclick="filterInventory('Carnes')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Carnes</button>
-                <button onclick="filterInventory('Vegetales')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Verduras</button>
-                <button onclick="filterInventory('Embutidos')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Embutidos</button>
-                <button onclick="filterInventory('Bebidas')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Bebidas</button>
-                <button onclick="filterInventory('Papas/Pan')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Papas/Pan</button>
-                <button onclick="filterInventory('Insumos')" class="cat-pill bg-white border px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap text-slate-600">Insumos</button>
-            </div>
+  return (
+    <div className="min-h-screen bg-black text-white font-sans selection:bg-orange-500">
+      <audio ref={audioNuevoRef} src={SOUND_NUEVO_PEDIDO} preload="auto" />
+      <audio ref={audioListoRef} src={SOUND_PEDIDO_LISTO} preload="auto" />
+      
+      <nav className="fixed bottom-0 left-0 w-full bg-zinc-950/90 backdrop-blur-xl border-t border-zinc-900 z-[100] px-6 py-5 flex justify-around md:top-0 md:bottom-auto md:justify-center md:gap-32">
+        <button onClick={() => setView('cliente')} className={`flex flex-col items-center gap-1 transition-all ${view === 'cliente' ? 'text-orange-500 scale-110' : 'text-zinc-600 hover:text-zinc-400'}`}>
+          <PlusCircle size={24} /><span className="text-[9px] font-black uppercase">Nuevo Pedido</span>
+        </button>
+        <button onClick={() => setView('cocina')} className={`relative flex flex-col items-center gap-1 transition-all ${view === 'cocina' ? 'text-orange-500 scale-110' : 'text-zinc-600 hover:text-zinc-400'}`}>
+          <ChefHat size={24} />
+          {pedidos.filter(p => p.estado === 'Pendiente').length > 0 && <span className="absolute -top-1 -right-1 bg-red-600 w-2.5 h-2.5 rounded-full animate-pulse border-2 border-black"></span>}
+          <span className="text-[9px] font-black uppercase">Cocina</span>
+        </button>
+        <button onClick={() => setView('caja')} className={`flex flex-col items-center gap-1 transition-all ${view === 'caja' ? 'text-green-500 scale-110' : 'text-zinc-600 hover:text-zinc-400'}`}>
+          <Receipt size={24} /><span className="text-[9px] font-black uppercase">Caja</span>
+        </button>
+      </nav>
 
-            <div id="inventory-grid" class="grid grid-cols-1 gap-3"></div>
-        </div>
-
-        <!-- VISTA 3: REPORTE FINANCIERO -->
-        <div id="view-reporte" class="hidden space-y-6">
-            <div class="card p-6 bg-braza text-white text-center">
-                <p class="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Total Gastado Hoy</p>
-                <h3 id="total-spent-display" class="text-3xl font-black text-rose-500">$0</h3>
-                <div class="mt-4 pt-4 border-t border-slate-700 flex justify-between">
-                    <div>
-                        <p class="text-[9px] uppercase font-bold text-slate-500">Base Inicial</p>
-                        <p id="base-display" class="font-bold">$0</p>
-                    </div>
-                    <div>
-                        <p class="text-[9px] uppercase font-bold text-slate-500">Efectivo Restante</p>
-                        <p id="cash-display" class="font-bold text-emerald-400">$0</p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card overflow-hidden">
-                <div class="p-4 border-b bg-slate-50 flex justify-between items-center">
-                    <h4 class="font-bold text-xs uppercase text-slate-500">Movimientos del Día</h4>
-                    <button onclick="sendToWhatsApp()" class="bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1">
-                        <i class="fab fa-whatsapp"></i> ENVIAR REPORTE COMPLETO
-                    </button>
-                </div>
-                <div id="history-list" class="divide-y max-h-[50vh] overflow-y-auto"></div>
-            </div>
-
-            <div class="flex flex-col items-center gap-4">
-                <div class="flex justify-center gap-6">
-                    <button onclick="toggleBaseModal()" class="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
-                        <i class="fas fa-edit"></i> Ajustar Base
-                    </button>
-                    <button onclick="clearDay()" class="text-[10px] font-bold text-rose-500 uppercase flex items-center gap-1">
-                        <i class="fas fa-trash"></i> Reiniciar Día
-                    </button>
-                </div>
-            </div>
-        </div>
-
-    </main>
-
-    <!-- Modales (Iguales a la versión anterior pero con categorías actualizadas) -->
-    <div id="stock-modal" class="fixed inset-0 bg-black/60 hidden z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl p-6 w-full max-w-sm space-y-4 shadow-2xl">
-            <h3 class="font-black text-center text-slate-800">CONFIGURAR PRODUCTO</h3>
-            <input type="text" id="s-name" placeholder="Nombre del producto" class="w-full p-3 bg-slate-100 rounded-xl outline-none font-bold uppercase">
-            <select id="s-cat" class="w-full p-3 bg-slate-100 rounded-xl font-bold">
-                <option value="Carnes">🥩 Carnes</option>
-                <option value="Vegetales">🥦 Verduras</option>
-                <option value="Embutidos">🌭 Embutidos</option>
-                <option value="Bebidas">🥤 Bebidas</option>
-                <option value="Insumos">🔥 Insumos</option>
-                <option value="Papas/Pan">🍔 Papas y Pan</option>
-                <option value="Otros">📦 Otros</option>
-            </select>
-            <div class="grid grid-cols-2 gap-2">
-                <div>
-                    <label class="text-[9px] font-bold text-slate-400 uppercase ml-1">Stock Actual</label>
-                    <input type="number" id="s-qty" class="w-full p-3 bg-slate-100 rounded-xl text-center font-bold">
-                </div>
-                <div>
-                    <label class="text-[9px] font-bold text-rose-400 uppercase ml-1">Mínimo</label>
-                    <input type="number" id="s-min" class="w-full p-3 bg-rose-50 border border-rose-100 rounded-xl text-center font-bold text-rose-600">
-                </div>
-            </div>
-            <select id="s-unit" class="w-full p-3 bg-slate-100 rounded-xl font-bold">
-                <option value="und">und</option>
-                <option value="gr">gr</option>
-                <option value="kg">kg</option>
-                <option value="lb">lb</option>
-            </select>
-            <div class="flex gap-2 pt-2">
-                <button onclick="toggleAddStock()" class="flex-1 py-3 font-bold text-slate-500">Cerrar</button>
-                <button onclick="saveNewStock()" class="flex-1 py-3 bg-rose-500 text-white rounded-xl font-bold shadow-lg">Guardar</button>
-            </div>
-        </div>
+      <main className="pt-2 md:pt-32 min-h-screen">
+        {!user ? (
+          <div className="h-[80vh] flex flex-col items-center justify-center">
+            <Flame className="animate-pulse text-orange-600" size={60}/><p className="text-[10px] font-black mt-4 uppercase tracking-widest opacity-40">Cargando Braza Brava...</p>
+          </div>
+        ) : (
+          <div className="animate-in fade-in duration-700">
+            {view === 'cliente' ? renderCliente() : view === 'cocina' ? renderCocina() : renderCaja()}
+          </div>
+        )}
+      </main>
     </div>
-
-    <!-- Modal Descontar Ventas -->
-    <div id="sales-modal" class="fixed inset-0 bg-black/60 hidden z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl p-6 w-full max-w-sm space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
-            <h3 class="font-black text-center text-slate-800 uppercase text-sm">Registrar Salida / Uso</h3>
-            <p class="text-[10px] text-center text-slate-400">¿Qué se gastó hoy?</p>
-            <div id="sales-list" class="flex-1 overflow-y-auto space-y-2 pr-2 py-2 no-scrollbar"></div>
-            <div class="flex gap-2 pt-4 border-t">
-                <button onclick="toggleSalesModal()" class="flex-1 py-3 font-bold text-slate-500 text-xs uppercase">Cerrar</button>
-                <button onclick="applySales()" class="flex-1 py-3 bg-emerald-500 text-white rounded-xl font-bold shadow-lg text-xs uppercase">Registrar Uso</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="toast" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-2xl opacity-0 transition-all z-[100] text-xs font-bold pointer-events-none"></div>
-
-    <script>
-        let state = {
-            base: 1000000,
-            pending: [],
-            history: [],
-            usageHistory: [],
-            inventory: [],
-            activeFilter: 'All'
-        };
-
-        const WHATSAPP_NUM = "573205712682";
-
-        // PRECARGA DE PRODUCTOS SOLICITADOS
-        const initialProducts = [
-            { name: "CocaCola 400 ml", cat: "Bebidas", unit: "und" },
-            { name: "CocaCola 250 ml", cat: "Bebidas", unit: "und" },
-            { name: "Postobon 400 ml", cat: "Bebidas", unit: "und" },
-            { name: "Postobon 250 ml", cat: "Bebidas", unit: "und" },
-            { name: "Carne", cat: "Carnes", unit: "lb" },
-            { name: "Pollo", cat: "Carnes", unit: "lb" },
-            { name: "Alitas", cat: "Carnes", unit: "und" },
-            { name: "Pulpa de cerdo", cat: "Carnes", unit: "lb" },
-            { name: "Chuleta de cerdo", cat: "Carnes", unit: "lb" },
-            { name: "Chorizo", cat: "Embutidos", unit: "und" },
-            { name: "Salchicha", cat: "Embutidos", unit: "und" },
-            { name: "Butifarra", cat: "Embutidos", unit: "und" },
-            { name: "Salchicha para perros", cat: "Embutidos", unit: "und" },
-            { name: "Salchicha Suiza", cat: "Embutidos", unit: "und" },
-            { name: "Costilla Ahumada", cat: "Embutidos", unit: "lb" },
-            { name: "Carne Hamburguesa Molida", cat: "Embutidos", unit: "lb" },
-            { name: "Carne Hamburguesa Masa", cat: "Embutidos", unit: "lb" },
-            { name: "Aceite para freír", cat: "Insumos", unit: "und" },
-            { name: "Pan de Hamburguesa", cat: "Papas/Pan", unit: "und" },
-            { name: "Pan de Perro Sencillo", cat: "Papas/Pan", unit: "und" },
-            { name: "Pan Brioche de Perro", cat: "Papas/Pan", unit: "und" },
-            { name: "Pan Brioche de Hamburguesa", cat: "Papas/Pan", unit: "und" },
-            { name: "Papa Francesa", cat: "Papas/Pan", unit: "kg" },
-            { name: "Lechuga", cat: "Vegetales", unit: "und" },
-            { name: "Lechuga Crespa", cat: "Vegetales", unit: "und" },
-            { name: "Tomate", cat: "Vegetales", unit: "und" },
-            { name: "Cebolla Roja", cat: "Vegetales", unit: "und" },
-            { name: "Cebolla Blanca", cat: "Vegetales", unit: "und" },
-            { name: "Pimentón Rojo", cat: "Vegetales", unit: "und" },
-            { name: "Pimentón Verde", cat: "Vegetales", unit: "und" },
-            { name: "J1", cat: "Otros", unit: "und" },
-            { name: "J2", cat: "Otros", unit: "und" }
-        ];
-
-        function init() {
-            const saved = localStorage.getItem('braza_brava_v3');
-            if (saved) {
-                state = JSON.parse(saved);
-            } else {
-                // Si es la primera vez, cargar la lista predefinida
-                state.inventory = initialProducts.map(p => ({
-                    ...p, qty: 0, min: 5, startQty: 0
-                }));
-            }
-            updateUI();
-        }
-
-        function save() {
-            localStorage.setItem('braza_brava_v3', JSON.stringify(state));
-        }
-
-        function format(val) {
-            return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(val);
-        }
-
-        function switchTab(tab) {
-            document.querySelectorAll('main > div').forEach(d => d.classList.add('hidden'));
-            document.getElementById(`view-${tab}`).classList.remove('hidden');
-            document.querySelectorAll('nav button').forEach(b => b.classList.remove('tab-active', 'text-slate-400'));
-            document.getElementById(`tab-${tab}`).classList.add('tab-active');
-        }
-
-        // --- PENDIENTES ---
-        function addPending(name, qty = "", unit = "und") {
-            const inputName = name || document.getElementById('p-name').value.trim();
-            const inputQty = qty || document.getElementById('p-qty').value;
-            const inputUnit = unit || document.getElementById('p-unit').value;
-            if (!inputName) return;
-            const exists = state.pending.find(p => p.name.toLowerCase() === inputName.toLowerCase() && !p.done);
-            if (!exists) {
-                state.pending.push({ name: inputName, qty: inputQty || "1", unit: inputUnit, done: false });
-                if (!name) { document.getElementById('p-name').value = ''; document.getElementById('p-qty').value = ''; }
-                save(); renderPending();
-            }
-        }
-
-        function togglePending(i) { state.pending[i].done = !state.pending[i].done; save(); renderPending(); }
-        function deletePending(i) { state.pending.splice(i, 1); save(); renderPending(); }
-        function usePending(i) {
-            const item = state.pending[i];
-            document.getElementById('buy-name').value = item.name;
-            document.getElementById('buy-qty').value = item.qty;
-            switchTab('compras');
-        }
-
-        function renderPending() {
-            const list = document.getElementById('pending-list');
-            list.innerHTML = state.pending.length ? '' : '<p class="text-center py-4 text-slate-400 text-xs italic">Nada pendiente hoy</p>';
-            state.pending.forEach((p, i) => {
-                const div = document.createElement('div');
-                div.className = `flex items-center justify-between p-3 rounded-xl border bg-white shadow-sm transition-all ${p.done ? 'opacity-50 grayscale' : 'border-rose-100'}`;
-                div.innerHTML = `
-                    <div class="flex items-center gap-3 overflow-hidden" onclick="togglePending(${i})">
-                        <i class="fas ${p.done ? 'fa-check-circle text-emerald-500' : 'fa-circle text-slate-200'} text-lg"></i>
-                        <div class="truncate">
-                            <p class="text-[10px] font-bold text-rose-500 uppercase leading-none">${p.qty} ${p.unit}</p>
-                            <p class="font-bold text-slate-700 text-xs truncate uppercase">${p.name}</p>
-                        </div>
-                    </div>
-                    <div class="flex gap-2">
-                        <button onclick="usePending(${i})" class="w-8 h-8 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center"><i class="fas fa-shopping-basket text-xs"></i></button>
-                        <button onclick="deletePending(${i})" class="w-8 h-8 rounded-full bg-slate-50 text-slate-300 flex items-center justify-center"><i class="fas fa-times text-xs"></i></button>
-                    </div>
-                `;
-                list.appendChild(div);
-            });
-        }
-
-        // --- COMPRAS ---
-        function registerPurchase() {
-            const name = document.getElementById('buy-name').value.trim();
-            const cat = document.getElementById('buy-cat').value;
-            const qty = parseFloat(document.getElementById('buy-qty').value) || 0;
-            const price = parseFloat(document.getElementById('buy-price').value) || 0;
-            const total = qty * price;
-            if (!name || total <= 0) return toast("Faltan datos");
-            state.history.push({ 
-                type: 'gasto', name, cat, qty, price, total, 
-                time: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) 
-            });
-            const invIndex = state.inventory.findIndex(i => i.name.toLowerCase() === name.toLowerCase());
-            if (invIndex !== -1) { state.inventory[invIndex].qty += qty; }
-            else { state.inventory.push({ name, cat, qty, unit: 'und', min: 0, startQty: 0 }); }
-            document.getElementById('buy-name').value = ''; document.getElementById('buy-qty').value = '';
-            document.getElementById('buy-price').value = ''; document.getElementById('buy-total-display').innerText = "$0";
-            save(); updateUI(); toast("Compra guardada");
-        }
-
-        // --- INVENTARIO ---
-        function toggleAddStock() { document.getElementById('stock-modal').classList.toggle('hidden'); }
-        function saveNewStock() {
-            const name = document.getElementById('s-name').value.trim();
-            const cat = document.getElementById('s-cat').value;
-            const qty = parseFloat(document.getElementById('s-qty').value) || 0;
-            const min = parseFloat(document.getElementById('s-min').value) || 0;
-            const unit = document.getElementById('s-unit').value;
-            if (!name) return;
-            const idx = state.inventory.findIndex(i => i.name.toLowerCase() === name.toLowerCase());
-            if (idx !== -1) { state.inventory[idx] = { ...state.inventory[idx], cat, qty, min, unit }; }
-            else { state.inventory.push({ name, cat, qty, min, unit, startQty: qty }); }
-            toggleAddStock(); checkMins(); save(); updateUI();
-        }
-
-        function updateStock(index, delta) {
-            state.inventory[index].qty = Math.max(0, state.inventory[index].qty + delta);
-            checkMins(); save(); renderInventory();
-        }
-
-        function checkMins() {
-            state.inventory.forEach(item => {
-                if (item.min > 0 && item.qty <= item.min) {
-                    addPending(item.name, (item.min * 2) - item.qty, item.unit);
-                }
-            });
-        }
-
-        function filterInventory(cat) {
-            state.activeFilter = cat;
-            document.querySelectorAll('.cat-pill').forEach(b => {
-                const isMatch = (cat === 'All' && b.innerText === 'TODOS') || b.innerText.toLowerCase() === cat.toLowerCase();
-                b.className = `cat-pill px-4 py-2 rounded-full text-[10px] font-bold uppercase whitespace-nowrap transition-all ${isMatch ? 'bg-slate-800 text-white' : 'bg-white border text-slate-600'}`;
-            });
-            renderInventory();
-        }
-
-        function renderInventory() {
-            const grid = document.getElementById('inventory-grid');
-            grid.innerHTML = '';
-            const filtered = state.activeFilter === 'All' ? state.inventory : state.inventory.filter(i => i.cat === state.activeFilter);
-            filtered.forEach((item) => {
-                const idx = state.inventory.indexOf(item);
-                const isLow = item.min > 0 && item.qty <= item.min;
-                const card = document.createElement('div');
-                card.className = `card p-4 flex justify-between items-center ${isLow ? 'stock-alert ring-2 ring-rose-500/10' : ''}`;
-                card.innerHTML = `
-                    <div class="flex flex-col flex-1">
-                        <span class="text-[8px] uppercase font-black text-rose-500 tracking-tighter">${item.cat}</span>
-                        <span class="font-bold text-slate-800 text-sm uppercase">${item.name}</span>
-                        <div class="flex items-center gap-2 mt-1">
-                            <span class="text-xs font-mono font-black ${isLow ? 'text-rose-600' : 'text-slate-600'}">${item.qty} ${item.unit}</span>
-                            <span class="text-[9px] text-slate-400 font-bold uppercase">Inicia: ${item.startQty || 0} | Min: ${item.min}</span>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <button onclick="updateStock(${idx}, -1)" class="w-10 h-10 rounded-xl border-2 border-slate-100 flex items-center justify-center font-bold text-slate-400">-</button>
-                        <button onclick="updateStock(${idx}, 1)" class="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold shadow-lg">+</button>
-                        <button onclick="editStock(${idx})" class="w-8 h-8 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center"><i class="fas fa-edit text-[10px]"></i></button>
-                    </div>
-                `;
-                grid.appendChild(card);
-            });
-        }
-
-        function editStock(i) {
-            const item = state.inventory[i];
-            document.getElementById('s-name').value = item.name;
-            document.getElementById('s-cat').value = item.cat;
-            document.getElementById('s-qty').value = item.qty;
-            document.getElementById('s-min').value = item.min;
-            document.getElementById('s-unit').value = item.unit;
-            toggleAddStock();
-        }
-
-        // --- SALIDAS ---
-        function toggleSalesModal() {
-            const modal = document.getElementById('sales-modal');
-            const list = document.getElementById('sales-list');
-            if (modal.classList.contains('hidden')) {
-                list.innerHTML = '';
-                state.inventory.forEach((item, idx) => {
-                    if (item.qty > 0) {
-                        const div = document.createElement('div');
-                        div.className = "flex items-center gap-3 bg-slate-50 p-3 rounded-xl";
-                        div.innerHTML = `
-                            <div class="flex-1 truncate">
-                                <p class="text-[10px] font-bold text-slate-400 uppercase leading-none">${item.cat}</p>
-                                <p class="text-xs font-bold text-slate-800 uppercase truncate">${item.name}</p>
-                            </div>
-                            <input type="number" step="0.01" placeholder="Uso" data-idx="${idx}" class="sale-input w-20 p-2 bg-white border border-slate-200 rounded-lg text-center font-bold text-emerald-600">
-                        `;
-                        list.appendChild(div);
-                    }
-                });
-            }
-            modal.classList.toggle('hidden');
-        }
-
-        function applySales() {
-            const inputs = document.querySelectorAll('.sale-input');
-            let usage = [];
-            inputs.forEach(input => {
-                const val = parseFloat(input.value);
-                const idx = input.dataset.idx;
-                if (!isNaN(val) && val > 0) {
-                    const item = state.inventory[idx];
-                    item.qty = Math.max(0, item.qty - val);
-                    usage.push({ name: item.name, qty: val, unit: item.unit });
-                }
-            });
-            if (usage.length > 0) {
-                state.usageHistory.push({ time: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }), items: usage });
-                checkMins(); save(); updateUI(); toggleSalesModal(); toast("Salida registrada");
-            }
-        }
-
-        // --- WHATSAPP ---
-        function sendInventoryToWhatsApp() {
-            let msg = `*📦 BRAZA BRAVA - ESTADO STOCK*%0A_Fecha: ${new Date().toLocaleDateString()}_%0A%0A`;
-            const cats = [...new Set(state.inventory.map(i => i.cat))];
-            cats.forEach(cat => {
-                msg += `*${cat.toUpperCase()}*%0A`;
-                state.inventory.filter(i => i.cat === cat).forEach(item => {
-                    const mark = (item.min > 0 && item.qty <= item.min) ? " ⚠️ *BAJO*" : "";
-                    msg += `- ${item.name}: ${item.qty} ${item.unit}${mark}%0A`;
-                });
-                msg += `%0A`;
-            });
-            window.open(`https://wa.me/${WHATSAPP_NUM}?text=${msg}`, '_blank');
-        }
-
-        function sendToWhatsApp() {
-            const totalSpent = state.history.reduce((s, t) => s + t.total, 0);
-            const balance = state.base - totalSpent;
-            let msg = `*🔥 BRAZA BRAVA - REPORTE JORNADA*%0A_Fecha: ${new Date().toLocaleDateString()}_%0A%0A`;
-            msg += `*💰 CAJA:*%0ABase: ${format(state.base)}%0AGastos: ${format(totalSpent)}%0ASaldo Final: ${format(balance)}%0A%0A`;
-            if (state.usageHistory.length > 0) {
-                msg += `*📉 CONSUMO DEL DÍA:*%0A`;
-                const daily = {};
-                state.usageHistory.forEach(h => h.items.forEach(it => daily[it.name] = (daily[it.name] || 0) + it.qty));
-                Object.keys(daily).forEach(n => msg += `- ${n.toUpperCase()}: ${daily[n]}%0A`);
-            }
-            window.open(`https://wa.me/${WHATSAPP_NUM}?text=${msg}`, '_blank');
-        }
-
-        function updateUI() {
-            const totalSpent = state.history.reduce((s, t) => s + (t.total || 0), 0);
-            const balance = state.base - totalSpent;
-            document.getElementById('balance').innerText = format(balance);
-            document.getElementById('total-spent-display').innerText = format(totalSpent);
-            document.getElementById('base-display').innerText = format(state.base);
-            document.getElementById('cash-display').innerText = format(balance);
-            renderPending(); renderHistory(); renderInventory();
-        }
-
-        function renderHistory() {
-            const list = document.getElementById('history-list');
-            list.innerHTML = (state.history.length || state.usageHistory.length) ? '' : '<p class="text-center py-6 text-slate-400 text-xs italic">Sin movimientos</p>';
-            state.history.slice().reverse().forEach(t => {
-                const div = document.createElement('div');
-                div.className = 'p-4 flex justify-between items-center bg-white border-l-4 border-rose-500';
-                div.innerHTML = `<div><p class="text-xs font-bold uppercase">${t.name}</p><p class="text-[10px] text-slate-400">${t.time} · GASTO</p></div><p class="font-black text-rose-600 text-xs">${format(t.total)}</p>`;
-                list.appendChild(div);
-            });
-            state.usageHistory.slice().reverse().forEach(h => {
-                const div = document.createElement('div');
-                div.className = 'p-4 bg-slate-50 border-l-4 border-emerald-500';
-                div.innerHTML = `<p class="text-[10px] font-bold text-emerald-600 uppercase">Uso de Stock</p><p class="text-xs italic">${h.items.map(it => `${it.qty} ${it.name}`).join(', ')}</p>`;
-                list.appendChild(div);
-            });
-        }
-
-        function clearDay() {
-            if (confirm("¿Reiniciar día? El stock actual será el inicial de mañana.")) {
-                state.inventory.forEach(i => i.startQty = i.qty);
-                state.history = []; state.usageHistory = []; save(); updateUI(); toast("Día reiniciado");
-            }
-        }
-
-        function toggleBaseModal() {
-            const val = prompt("Base Inicial:", state.base);
-            if (val !== null) { state.base = parseFloat(val) || 0; save(); updateUI(); }
-        }
-
-        function toast(msg) {
-            const t = document.getElementById('toast'); t.innerText = msg; t.style.opacity = '1';
-            setTimeout(() => t.style.opacity = '0', 2000);
-        }
-
-        const calcTotal = () => {
-            const q = parseFloat(document.getElementById('buy-qty').value) || 0;
-            const p = parseFloat(document.getElementById('buy-price').value) || 0;
-            document.getElementById('buy-total-display').innerText = format(q * p);
-        };
-        document.getElementById('buy-qty').oninput = calcTotal;
-        document.getElementById('buy-price').oninput = calcTotal;
-
-        window.onload = init;
-    </script>
-</body>
-</html>
+  );
+}
